@@ -6,7 +6,7 @@ Pointnote is a local Chrome / Edge extension for attaching written or spoken fee
 
 ## Install locally
 
-Use Node.js 22 or newer (Node 24 is used in CI).
+Use Node.js 22.13 or newer (Node 24 is used in CI).
 
 ```sh
 npm ci
