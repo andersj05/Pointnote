@@ -37,11 +37,13 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 - **Element:** hover to preview, click to select, then use **↑ Parent** to include a larger container. Headings, paragraphs, links, buttons, images, SVG/chart containers, and sections are supported.
 - **Text range:** drag across a unique passage inside one section. Its exact quote and surrounding text are retained. Text ranges are limited to 1,600 characters.
 - **Multiple:** click to add/remove up to 12 elements. Shift-click also adds/removes elements in element mode.
-- Type a note, or **hold to talk**. Read and edit the transcript before choosing **Save note**.
+- Type a note, or use the large **Hold to talk** button. The adjacent record button starts **hands-free recording**; click Stop when done. Read and edit the transcript before choosing **Save note**, or press **Ctrl+Enter** (**Cmd+Enter** on macOS).
 - Numbered markers and sidebar cards revisit the target. **Mark addressed** / **Reopen** track progress. Missing or ambiguous targets show **Reattach**. Reattachment preserves the original comment and previous target context.
-- **Pause selection** restores normal page interaction while keeping notes visible. **×** closes the review UI. **Esc** clears a selection, then closes the UI.
-- **↔** moves the sidebar so you can reach targets behind it.
-- Uncheck **Include a screenshot** if needed. Notes still save, with an explicit unavailable reason.
+- Search notes or filter by open, addressed, or reattachment status. Exports always include all notes on the current page.
+- **Pause selection** restores normal page interaction while keeping notes visible. **×** closes the review UI. **Esc** stops recording, returns from settings, restores a minimized panel, or clears a selection before closing the UI.
+- Drag the title bar to move the panel; drag either bottom corner to resize it. The dock icon beside the page title moves it to the opposite side. Focus the title bar or a resize handle and use arrow keys for keyboard adjustments; hold Shift for larger steps.
+- **Minimize** keeps a compact title bar available and restores normal page use. Restore it to continue your draft.
+- Open **Settings** with the gear icon for screenshots, voice, language, and **Reset layout**. Turning off **Include screenshots** still saves notes with an explicit unavailable reason. Settings and panel position/size are remembered locally; the panel stays within the current window.
 
 Saved notes survive reloads and browser restarts. An enabled review automatically returns after same-origin refreshes. After a browser restart or navigation to another origin, invoke Pointnote again. Notes are keyed to the exact page URL, including query and hash routes; different ports and routes are separate pages. Sensitive URL query values are redacted from the exported URL, while a one-way page key keeps local routes distinct.
 
@@ -64,11 +66,13 @@ Screenshots show the visible viewport with orange target outlines. Large or mult
 
 ## Voice and privacy
 
-**On-device** is the default. It requires browser support for local Web Speech recognition and an installed language pack. Open **Voice & privacy**, set a language such as `en-US`, and use **Install language pack** if needed. A language pack downloads through the browser; local recognition audio stays on the computer.
+**On-device** is the default. It requires browser support for local Web Speech recognition and an installed language pack. Open **Settings → Voice**, set a language such as `en-US`, and use **Install language pack** if needed. A language pack downloads through the browser; local recognition audio stays on the computer.
 
 The optional **Browser service** provider may send audio to the browser vendor's speech service. It requires a separate, explicit opt-in in the UI. Pointnote never silently switches providers, stores raw audio, or embeds private API keys. Microphone permission is requested by the browser for the reviewed page; localhost is a secure context. Support varies by browser, OS, language, and policy. A clear error leaves typed input available.
 
 The original saved comment is the text you approve after editing. The unedited recognition transcript is retained separately in `input.transcript`. The provider interface is replaceable.
+
+Provider and language preferences are remembered, but browser-service consent must be given again after a page reload. Recording stops when you open settings, minimize or close the panel, switch away from the tab, or press Escape.
 
 Read [privacy and data handling](docs/privacy.md) before reviewing sensitive material.
 

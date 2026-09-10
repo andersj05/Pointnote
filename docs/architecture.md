@@ -3,13 +3,16 @@
 ## Runtime
 
 - `src/background.ts`: toolbar activation, authorized reinjection, message boundary, local persistence calls, and a serialized screenshot queue. No persistent host access.
-- `src/content.ts`: sidebar, hover/selection, markers, status controls, SPA route detection, and export download. User and page strings enter the UI through `textContent`.
+- `src/content.ts`: review workspace, settings navigation, hover/selection, markers, note search/filtering, status controls, SPA route detection, and export download. User and page strings enter the UI through `textContent`.
+- `src/panel.ts`: pointer and keyboard movement/resizing, minimization, docking, and viewport clamping.
+- `src/preferences.ts`: validated capture/voice preferences and saved layout in extension-local storage. Browser-service consent is not persisted.
+- `src/icons.ts`: locally bundled SVG interface icons.
 - `src/context.ts`: bounded sanitized excerpts, locator hints, URL redaction, and page hashing.
 - `src/anchor.ts`: conservative element matching.
 - `src/range.ts`: normalized quote anchors across inline markup, with private-region rejection.
 - `src/screenshot.ts`: viewport capture, privacy masks, geometry validation, and target outlines.
 - `src/storage.ts`: IndexedDB v1, one record per annotation, indexed by page key. Writes resolve on transaction completion.
-- `src/voice.ts`: replaceable transcription interface, on-device/browser providers, and push-to-talk controls.
+- `src/voice.ts`: replaceable transcription interface, on-device/browser providers, hold-to-talk and hands-free controls, and separate voice settings. Session IDs reject callbacks from cleared recordings.
 - `src/export.ts`: versioned Markdown/JSON/PNG ZIP, including instructions for the receiving agent.
 
 The content script is a single IIFE. The service worker is an ES module. Neither loads remote executable code. The small runtime ZIP dependency is fflate. esbuild produces `dist/`; the package command omits source maps from the installable ZIP.
