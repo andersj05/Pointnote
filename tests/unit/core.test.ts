@@ -55,6 +55,14 @@ function annotation(): Annotation {
   };
 }
 describe('bounded private context', () => {
+  it('removes HTML comments and tolerates malformed resource URLs', () => {
+    document.body.innerHTML =
+      '<section><!-- private-comment-token --><img src="http://[invalid" alt="Chart"></section>';
+    const target = captureTarget(document.querySelector('section')!);
+    expect(target.htmlExcerpt).not.toContain('private-comment-token');
+    expect(target.htmlExcerpt).not.toContain('http://[invalid');
+    expect(target.htmlExcerpt).toContain('Chart');
+  });
   it('excludes form values, private content, scripts and arbitrary attributes', () => {
     document.body.innerHTML =
       '<section id="form"><h2>Contact</h2><input value="password123" data-secret="token"><textarea>private textarea</textarea><select><option selected>secret choice</option></select><div contenteditable>private draft</div><div data-pointnote-private>private account</div><script>secretScript()</script><p onclick="secretEvent()" data-token="secretToken">Visible</p></section>';

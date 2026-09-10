@@ -170,6 +170,9 @@ test('localhost controls are blocked during review, normal when paused, with san
   await activate(page);
   await select(page, '#complete-task');
   await expect(page.locator('#project-status')).toHaveText('No actions yet');
+  await page.locator('#complete-task').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#project-status')).toHaveText('No actions yet');
   await save(page, 'Make this button more prominent.', 1);
   await page.getByRole('button', { name: 'Pause selection' }).click();
   await page.locator('#complete-task').click();
@@ -185,6 +188,35 @@ test('localhost controls are blocked during review, normal when paused, with san
   expect(strFromU8(files['feedback.json'])).not.toContain('PRIVATE-DRAFT-789');
   const data = JSON.parse(strFromU8(files['feedback.json']));
   expect(data.annotations[1].screenshot.redactedRegions).toBeGreaterThan(0);
+  const privateNote = data.annotations[1];
+  const r = privateNote.targets[0].bounds;
+  const pixel = await page.evaluate(
+    async ({ imageUrl, x, y }) => {
+      const img = new Image();
+      img.src = imageUrl;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      return [...ctx.getImageData(x, y, 1, 1).data];
+    },
+    {
+      imageUrl:
+        'data:image/png;base64,' +
+        Buffer.from(files[privateNote.screenshot.path]).toString('base64'),
+      x: Math.round(
+        ((r.x + r.width / 2) * privateNote.screenshot.width) /
+          privateNote.page.viewport.width,
+      ),
+      y: Math.round(
+        ((r.y + r.height / 2) * privateNote.screenshot.height) /
+          privateNote.page.viewport.height,
+      ),
+    },
+  );
+  expect(pixel).toEqual([220, 225, 223, 255]);
   await page.getByRole('button', { name: 'Pause selection' }).click();
   await page.locator('#route-change').click();
   await expect(page.locator('.card')).toHaveCount(0);
