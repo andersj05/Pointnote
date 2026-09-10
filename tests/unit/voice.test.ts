@@ -106,4 +106,60 @@ describe('replaceable speech provider', () => {
     voice.reset();
     container.remove();
   });
+  it('ignores late transcription after a draft has been cleared', async () => {
+    Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
+    const container = document.createElement('div');
+    let draft = '';
+    const voice = mountVoice(container, {
+      getDraft: () => draft,
+      setDraft: (value) => {
+        draft = value;
+      },
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    container.querySelector<HTMLButtonElement>('[data-voice-toggle]')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    const recognition = FakeRecognition.latest;
+    expect(voice.recording).toBe(true);
+    voice.reset();
+    draft = 'A new draft';
+    recognition.onresult?.({
+      results: [{ isFinal: true, 0: { transcript: 'late result' } }],
+    });
+    expect(draft).toBe('A new draft');
+    expect(voice.input()).toEqual({ method: 'typed' });
+  });
+  it('requires fresh consent for a remembered browser speech provider', () => {
+    Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
+    const container = document.createElement('div');
+    const settings = document.createElement('div');
+    const notice = vi.fn();
+    const voice = mountVoice(container, {
+      getDraft: () => '',
+      setDraft: () => {},
+      canStart: () => true,
+      onState: () => {},
+      notice,
+      settings,
+      preferences: { provider: 'browser', language: 'en-US', screenshot: true },
+    });
+    container.querySelector<HTMLButtonElement>('[data-voice-toggle]')!.click();
+    expect(voice.recording).toBe(false);
+    expect(notice).toHaveBeenCalledWith(
+      expect.stringContaining('allow browser audio processing'),
+    );
+    const consent = settings.querySelector<HTMLInputElement>(
+      '.voice-consent input',
+    )!;
+    consent.checked = true;
+    container.querySelector<HTMLButtonElement>('[data-voice-toggle]')!.click();
+    expect(voice.recording).toBe(true);
+    expect(FakeRecognition.latest.processLocally).toBe(false);
+    voice.stop();
+    expect(voice.recording).toBe(false);
+    voice.reset();
+  });
 });

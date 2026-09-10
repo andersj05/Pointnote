@@ -53,7 +53,10 @@ export function mountPanel(
       }
     | undefined;
   const paint = () => {
+    const requestedY = bounds.y;
     bounds = fitPanel(bounds, viewport());
+    if (minimized)
+      bounds.y = Math.max(8, Math.min(requestedY, innerHeight - 64));
     Object.assign(panel.style, {
       left: bounds.x + 'px',
       top: bounds.y + 'px',

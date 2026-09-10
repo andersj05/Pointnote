@@ -848,7 +848,7 @@ async function mount() {
       );
     });
   chrome.runtime.onMessage.addListener((message: { type: string }) => {
-    if (message.type === 'TOGGLE') setOpened(!opened);
+    if (message.type === 'TOGGLE' && !busy) setOpened(!opened);
   });
   const observer = new MutationObserver((mutations) => {
     if (
