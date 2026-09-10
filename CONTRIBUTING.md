@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node.js 22 or newer (CI uses 24), then `npm ci`.
+Use Node.js 22.13 or newer (CI uses 24), then `npm ci`.
 
 ## Branches and commits
 
@@ -15,3 +15,9 @@ Run `npm run check` and `npm run test:e2e`. Install the test browser once with `
 ## Scope
 
 Keep data local, retain original words, bound context, and test ambiguous or removed targets. Use `textContent` for page/user strings in UI. Adding permissions, network providers, or export schema changes requires an explicit explanation in the PR.
+
+## GitHub repository settings
+
+Both main and dev require pull requests, up-to-date quality/browser checks, branch-policy checks, and resolved review conversations. Force pushes and deletion are disabled, including for administrators. The current solo-maintainer policy requires no additional reviewer approval; add one when there is another maintainer. The reproducible settings are in `.github/branch-protection.json`.
+
+Squash feature PRs into dev. Release PRs from dev to main may use a merge commit to retain the integration history. GitHub automatically deletes merged feature branches; protected branches are retained. Dependabot's schedule becomes active once its configuration is present on the default branch.
