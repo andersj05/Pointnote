@@ -1,0 +1,58 @@
+name: CI
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev, 'feat/**']
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    name: Quality and browser workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pointnote-unpacked
+          path: dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pointnote-package
+          path: artifacts/pointnote-*.zip
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: |
+            test-results/
+            playwright-report/
+  branch-policy:
+    name: Branch policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce integration and release flow
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          if [[ "$BASE" == "main" && "$HEAD" != "dev" ]]; then
+            echo 'Release PRs to main must come from dev.'; exit 1
+          fi
+          if [[ "$BASE" == "dev" && ! "$HEAD" =~ ^(feat|fix|chore|docs|dependabot)/ ]]; then
+            echo 'PRs to dev must use feat/, fix/, chore/, docs/, or dependabot/.'; exit 1
+          fi
