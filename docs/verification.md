@@ -14,8 +14,12 @@ The browser suite verifies:
 6. Multi-element and actual drag-selected text ranges are exported with the right target/quote data.
 7. A deterministic recognizer drives the real push-to-talk UI; the transcript can be edited before saving while the original recognition text remains separate.
 8. Duplicate targets become ambiguous, addressed resolution is retained, and screenshot opt-out produces an explicit reason.
+9. Panel dragging, resizing, keyboard adjustments, minimization, reset, and viewport clamping keep controls reachable. Layout and capture/language preferences survive reloads.
+10. Settings and minimization restore normal page interaction while preserving the current draft.
+11. Search and status filters affect the displayed notes, while exports retain every note on the page. Repeated keyboard submission saves only one note.
+12. Hands-free recording toggles explicitly, prevents premature saving, and stops when opening settings.
 
-Unit tests cover privacy sanitization, bounded excerpts, URL redaction, conservative anchors, range reconstruction, page-isolated IndexedDB transactions, bundle contents, and local-only voice behavior.
+Unit tests cover privacy sanitization, bounded excerpts, URL redaction, conservative anchors, range reconstruction, page-isolated IndexedDB transactions, bundle contents, local-only voice behavior, fresh browser-service consent, stale transcript rejection, and panel recovery on smaller displays.
 
 Browser tests write failure images and a report to `test-results/` and `playwright-report/`. Successful report verification also writes an actual feedback ZIP and a screenshot of the sidebar for inspection. CI uploads failed diagnostics and installable build artifacts.
 
@@ -31,5 +35,6 @@ Browser tests write failure images and a report to `test-results/` and `playwrig
 8. On the frontend page, try the button while reviewing, paused, and closed. The count changes only when normal interaction is allowed.
 9. Inspect the private-field screenshot: the value should be covered by a solid mask. Try screenshot opt-out too.
 10. Test voice with a physical microphone on your Chrome/Edge installation. Install the on-device language pack if supported; hold to talk, release, edit the transcript, save, and inspect the export. Confirm denied-microphone and unavailable-language cases leave typed input usable. If testing the browser provider, explicitly opt in to its audio handling.
+11. Drag and resize the panel, minimize and restore it, and try a narrow window. Open Settings, change the screenshot option, return to the draft, then reload to check saved preferences. Test hands-free recording and stop it by opening Settings or switching tabs.
 
 Physical microphone input, language-pack downloads, browser vendor transcription, and Edge's installation UI are not simulated as successful in the automated suite. This is the remaining hardware/browser compatibility check.

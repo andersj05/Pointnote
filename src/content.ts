@@ -6,6 +6,9 @@ import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
 import { mountVoice } from './voice';
 import { readTextSelection, rangeForQuote } from './range';
+import { icon } from './icons';
+import { mountPanel } from './panel';
+import { readPreferences } from './preferences';
 import type { Annotation, PageContext, Target, Bounds } from './types';
 
 const guard = globalThis as typeof globalThis & { __pointnote?: boolean };
@@ -15,6 +18,15 @@ if (!guard.__pointnote) {
 }
 
 async function mount() {
+  const configuration = await readPreferences().catch(() => ({
+    preferences: {
+      screenshot: true,
+      provider: 'local' as const,
+      language: 'en-US',
+    },
+    layout: undefined,
+  }));
+  const preferences = configuration.preferences;
   const host = document.createElement('div');
   host.dataset.pointnoteRoot = '';
   const root = host.attachShadow({ mode: 'open' });
@@ -26,28 +38,40 @@ async function mount() {
     <div class="shield" aria-hidden="true"></div><div class="highlights"></div><div class="markers"></div>
     <aside class="panel" aria-label="Pointnote review">
       <header class="top">
-        <div class="brand-row"><span class="logo" aria-hidden="true">p</span><span class="brand">pointnote</span><span class="local">● Local notes</span><button class="icon" data-action="dock" aria-label="Move sidebar to the other side">↔</button><button class="icon" data-action="close" aria-label="Close Pointnote">×</button></div>
-        <div class="page-title"></div>
-        <div class="review-row"><span class="mode-label"><span class="dot"></span><span class="mode-text">Review mode</span></span><button class="quiet" data-action="pause">Pause selection</button></div>
+        <button class="drag-handle" data-panel-handle="move" aria-label="Move panel" title="Drag to move · arrow keys to nudge"><span class="logo" aria-hidden="true">${icon('note')}</span><span class="brand">pointnote</span><span class="drag-dots">${icon('grip')}</span></button>
+        <div class="window-actions"><button class="icon" data-action="settings" aria-label="Open settings" title="Settings" aria-expanded="false">${icon('settings')}</button><button class="icon" data-action="minimize" aria-label="Minimize Pointnote" title="Minimize">${icon('minus')}</button><button class="icon" data-action="close" aria-label="Close Pointnote" title="Close">${icon('close')}</button></div>
       </header>
-      <div class="body">
-        <div class="eyebrow">A little context goes a long way</div>
-        <h1 class="instruction">Point to it.<br>Put it into words.</h1>
-        <p class="hint">Click something on the page to leave a note. Your words stay yours.</p>
-        <div class="tabs" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">Element</button><button data-mode="text" aria-pressed="false">Text range</button><button data-mode="multiple" aria-pressed="false">Multiple</button></div>
-        <div class="target" hidden><div class="target-top"><span class="target-name"></span><button class="quiet" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
-        <form class="composer">
-          <label class="feedback-label" for="feedback">Your feedback</label>
-          <textarea id="feedback" maxlength="20000" placeholder="What feels off? What could be better?" aria-label="Your feedback"></textarea>
-          <div class="composer-actions"><button class="secondary" type="button" data-action="cancel">Clear selection</button><button class="primary" type="submit" data-action="save" disabled>Save note ↗</button></div>
-          <label class="privacy"><input type="checkbox" class="include-screenshot" checked>Include a screenshot. Form controls and private areas are masked.</label>
-        </form>
-        <div class="voice-slot"></div>
-        <div class="notice" role="status" aria-live="polite"></div>
-        <div class="notes-heading"><span class="eyebrow">Notes on this page</span><span class="count">0</span></div>
-        <div class="notes"></div>
+      <div class="workspace">
+        <div class="page-context"><span class="page-title"></span><button class="icon" data-action="dock" aria-label="Move sidebar to the other side" title="Move to the other side">${icon('dock')}</button></div>
+        <div class="review-row"><span class="mode-label"><span class="dot"></span><span class="mode-text">Selection on</span></span><button class="quiet" data-action="pause">Pause selection</button></div>
+        <div class="body">
+          <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
+          <div class="selection-prompt">${icon('cursor')}<span class="hint">Select an element on the page</span></div>
+          <div class="target" hidden><div class="target-top"><span class="target-name"></span><button class="quiet" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
+          <form class="composer">
+            <label class="sr-only" for="feedback">Your feedback</label>
+            <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback"></textarea>
+            <div class="voice-slot"></div>
+            <div class="composer-actions"><button class="quiet" type="button" data-action="cancel">Clear</button><button class="primary" type="submit" data-action="save" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>Save note <span aria-hidden="true">↵</span></button></div>
+          </form>
+          <div class="notes-heading"><h2>Notes <span class="count">0</span></h2><select class="note-filter" aria-label="Filter notes"><option value="all">All notes</option><option value="open">Open</option><option value="addressed">Addressed</option><option value="needs-reattachment">Needs reattachment</option></select></div>
+          <label class="search-field">${icon('search')}<input type="search" class="note-search" aria-label="Search notes" placeholder="Search notes"></label>
+          <div class="notes"></div>
+        </div>
       </div>
-      <footer class="footer"><button class="primary export" data-action="export" disabled><span>Export feedback</span><span>↓ ZIP</span></button><div class="footer-note">Markdown · JSON · screenshots</div></footer>
+      <section class="settings-page" aria-label="Settings" hidden>
+        <div class="settings-heading"><button class="icon" data-action="back" aria-label="Back to notes" title="Back to notes">${icon('back')}</button><h1 tabindex="-1">Settings</h1></div>
+        <div class="settings-body">
+          <section class="settings-section"><h2>Capture</h2><label class="setting-toggle"><span>Include screenshots<span class="setting-description">Form fields and private areas are masked.</span></span><input type="checkbox" class="include-screenshot" role="switch"></label></section>
+          <section class="settings-section"><h2>Voice</h2><div class="voice-preferences"></div></section>
+          <section class="settings-section"><h2>Workspace</h2><div class="setting-row"><span>Panel position &amp; size</span><button class="secondary" data-action="reset-layout">Reset layout</button></div><p class="setting-description">Drag the title bar to move. Drag either bottom corner to resize.</p></section>
+          <section class="settings-section shortcuts"><h2>Keyboard shortcuts</h2><div><span>Save note</span><kbd>Ctrl / ⌘ + Enter</kbd></div><div><span>Hold to talk, when focused</span><kbd>Space</kbd></div><div><span>Cancel selection / go back</span><kbd>Esc</kbd></div><div><span>Move or resize, when focused</span><kbd>Arrow keys</kbd></div></section>
+          <p class="local-note"><span class="dot"></span>Notes stay in this browser. No audio is stored.</p>
+        </div>
+      </section>
+      <div class="notice" role="status" aria-live="polite" hidden></div>
+      <footer class="footer"><button class="export" data-action="export" disabled>${icon('download')}<span>Export feedback</span><span class="export-format">ZIP</span></button></footer>
+      <button class="resize-handle resize-left" data-panel-handle="resize-left" aria-label="Resize panel from left" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button><button class="resize-handle" data-panel-handle="resize" aria-label="Resize panel" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button>
     </aside>`;
   root.append(shell);
   document.documentElement.append(host);
@@ -61,6 +85,8 @@ async function mount() {
   let opened = true,
     reviewing = true,
     busy = false;
+  let settingsOpen = false,
+    minimized = false;
   let page: PageContext = await pageContext();
   let annotations: Annotation[] = [],
     selected: Element[] = [],
@@ -76,8 +102,37 @@ async function mount() {
   let quote: Target['range'];
   const setNotice = (message: string) => {
     $('.notice').textContent = message;
+    $('.notice').hidden = !message;
+  };
+  const persistPreferences = () => {
+    void chrome.storage.local
+      .set({ preferences })
+      .catch(() =>
+        setNotice('Your settings could not be saved. Please try again.'),
+      );
+  };
+  const layout = mountPanel(panel, {
+    initial: configuration.layout,
+    canMove: () => !busy,
+    save: (bounds) => {
+      void chrome.storage.local
+        .set({ panelLayout: bounds })
+        .catch(() => setNotice('Your panel layout could not be saved.'));
+    },
+  });
+  const screenshotOption = $<HTMLInputElement>('.include-screenshot');
+  screenshotOption.checked = preferences.screenshot;
+  screenshotOption.onchange = () => {
+    preferences.screenshot = screenshotOption.checked;
+    persistPreferences();
   };
   const voice = mountVoice($('.voice-slot'), {
+    settings: $('.voice-preferences'),
+    preferences,
+    onPreferences: (value) => {
+      Object.assign(preferences, value);
+      persistPreferences();
+    },
     getDraft: () => feedback.value,
     setDraft: (value) => {
       feedback.value = value;
@@ -86,7 +141,13 @@ async function mount() {
     canStart: () => {
       if (!selected.length)
         setNotice('Select a target before recording feedback.');
-      return !busy && !reattaching && selected.length > 0;
+      return (
+        !busy &&
+        !reattaching &&
+        !settingsOpen &&
+        !minimized &&
+        selected.length > 0
+      );
     },
     onState: updateControls,
     notice: setNotice,
@@ -111,12 +172,26 @@ async function mount() {
     $<HTMLButtonElement>('[data-action=save]').textContent = busy
       ? 'Saving…'
       : reattaching
-        ? 'Attach here ↗'
-        : 'Save note ↗';
-    feedback.disabled = busy || Boolean(reattaching);
+        ? 'Attach here'
+        : 'Save note';
+    feedback.disabled = busy || voice.recording || Boolean(reattaching);
+    for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
+      $<HTMLButtonElement>(`[data-action=${action}]`).disabled = busy;
+    $<HTMLButtonElement>('[data-action=cancel]').disabled =
+      busy || (!selected.length && !feedback.value && !reattaching);
+    $<HTMLButtonElement>('[data-action=parent]').disabled ||= voice.recording;
+    for (const button of root.querySelectorAll<HTMLButtonElement>(
+      '[data-mode]',
+    ))
+      button.disabled = busy || voice.recording;
+    for (const button of root.querySelectorAll<HTMLButtonElement>(
+      '.card button',
+    ))
+      button.disabled = busy || voice.recording;
   }
   function renderSelection() {
     $('.target').hidden = !selected.length;
+    $('.selection-prompt').hidden = Boolean(selected.length);
     if (selected.length) {
       $('.target-name').textContent = selected
         .map((el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''))
@@ -132,7 +207,7 @@ async function mount() {
   function draw() {
     highlights.replaceChildren();
     markers.replaceChildren();
-    if (!opened) return;
+    if (!opened || minimized || settingsOpen) return;
     const addOutline = (el: Element, hover: boolean, rect?: Bounds) => {
       if (!el.isConnected) return;
       const r = rect || bounds(el),
@@ -187,11 +262,38 @@ async function mount() {
     if (!annotations.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.textContent =
-        'Nothing here yet. Start with the thing that caught your eye.';
+      empty.innerHTML = `${icon('note')}<span>No notes yet</span><p>Select a target and add your first note.</p>`;
       list.append(empty);
     }
     annotations.forEach((a, i) => {
+      const filter = $<HTMLSelectElement>('.note-filter').value;
+      const search = $<HTMLInputElement>('.note-search')
+        .value.trim()
+        .toLocaleLowerCase();
+      if (
+        filter !== 'all' &&
+        (filter === 'needs-reattachment'
+          ? a.status !== filter
+          : a.resolution !== filter)
+      )
+        return;
+      if (
+        search &&
+        ![
+          a.originalComment,
+          ...a.targets.map((target) =>
+            [
+              target.locator.nearbyHeading,
+              target.locator.accessibleName,
+              target.locator.tag,
+            ].join(' '),
+          ),
+        ]
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(search)
+      )
+        return;
       const card = document.createElement('article');
       card.className = 'card' + (selectedId === a.id ? ' active' : '');
       card.dataset.noteId = a.id;
@@ -223,15 +325,19 @@ async function mount() {
       imageState.className = 'image-state';
       imageState.textContent =
         a.screenshot.status === 'available'
-          ? '▧ Screenshot saved'
-          : 'Screenshot unavailable: ' + a.screenshot.reason;
+          ? 'Screenshot attached'
+          : 'No screenshot';
+      imageState.title =
+        a.screenshot.status === 'available'
+          ? 'Screenshot saved with private areas masked'
+          : a.screenshot.reason;
       const actions = document.createElement('div');
       actions.className = 'card-actions';
       const button = (text: string, fn: () => void) => {
         const b = document.createElement('button');
         b.className = 'quiet';
         b.textContent = text;
-        b.disabled = busy;
+        b.disabled = busy || voice.recording;
         b.onclick = fn;
         actions.append(b);
       };
@@ -274,6 +380,12 @@ async function mount() {
       card.append(head, comment, imageState, actions);
       list.append(card);
     });
+    if (annotations.length && !list.childElementCount) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No matching notes';
+      list.append(empty);
+    }
     updateControls();
   }
   async function reconcile() {
@@ -321,6 +433,7 @@ async function mount() {
   async function load() {
     page = await pageContext();
     $('.page-title').textContent = page.title;
+    $('.page-title').title = page.title;
     annotations = await rpc<Annotation[]>({ type: 'LIST', pageKey: page.key });
     await reconcile();
   }
@@ -335,26 +448,57 @@ async function mount() {
   }
   function setReviewing(value: boolean) {
     reviewing = value;
-    shield.hidden = !value || !opened || selectionMode === 'text';
-    $('.mode-text').textContent = value ? 'Review mode' : 'Page interaction on';
+    shield.hidden = !selectionActive() || selectionMode === 'text';
+    $('.mode-text').textContent = value ? 'Selection on' : 'Selection paused';
+    $('.review-row').classList.toggle('paused', !value);
     $('[data-action=pause]').textContent = value
       ? 'Pause selection'
       : 'Resume selection';
     if (!value) hovered = null;
     draw();
   }
+  function selectionActive() {
+    return opened && reviewing && !settingsOpen && !minimized;
+  }
+  function showSettings(value: boolean) {
+    voice.stop();
+    settingsOpen = value;
+    $('.settings-page').hidden = !value;
+    $('.workspace').hidden = value;
+    $('.footer').hidden = value;
+    $('[data-action=settings]').setAttribute('aria-expanded', String(value));
+    setReviewing(reviewing);
+    if (value) $('.settings-heading h1').focus();
+    else $('[data-action=settings]').focus();
+  }
+  function setMinimized(value: boolean) {
+    voice.stop();
+    minimized = value;
+    panel.classList.toggle('minimized', value);
+    layout.minimize(value);
+    const button = $('[data-action=minimize]');
+    button.innerHTML = icon(value ? 'expand' : 'minus');
+    button.setAttribute(
+      'aria-label',
+      value ? 'Restore Pointnote' : 'Minimize Pointnote',
+    );
+    button.title = value ? 'Restore' : 'Minimize';
+    setReviewing(reviewing);
+    button.focus();
+  }
   function setOpened(value: boolean) {
     if (!value) voice.stop();
     opened = value;
     panel.hidden = !value;
-    shield.hidden = !value || !reviewing || selectionMode === 'text';
+    shield.hidden = !selectionActive() || selectionMode === 'text';
     act(async () => {
       await rpc({ type: 'ENABLED', enabled: value });
     });
     draw();
   }
   function revisit(a: Annotation) {
-    if (busy) return;
+    if (busy || voice.recording) return;
+    voice.stop();
     selectedId = a.id;
     reattaching = null;
     quote = a.targets[0].range;
@@ -388,14 +532,14 @@ async function mount() {
     );
   }
   shield.addEventListener('pointermove', (event) => {
-    if (!reviewing || busy) return;
+    if (!selectionActive() || busy) return;
     hovered = underPointer(event.clientX, event.clientY);
     draw();
   });
   shield.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (busy || voice.recording || !reviewing) return;
+    if (busy || voice.recording || !selectionActive()) return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
     quote = undefined;
@@ -433,7 +577,7 @@ async function mount() {
     window.addEventListener(
       type,
       (event) => {
-        if (!opened || !reviewing) return;
+        if (!selectionActive()) return;
         const path = event.composedPath();
         if (path.includes(panel) || path.includes(markers)) return;
         if (
@@ -474,7 +618,10 @@ async function mount() {
       if (!opened) return;
       if (event.key === 'Escape') {
         if (busy) return;
-        if (selected.length || reattaching) {
+        if (voice.recording) voice.stop();
+        else if (settingsOpen && !minimized) showSettings(false);
+        else if (minimized) setMinimized(false);
+        else if (selected.length || reattaching) {
           clear();
           setNotice('Selection cleared.');
         } else setOpened(false);
@@ -482,8 +629,19 @@ async function mount() {
         event.stopImmediatePropagation();
         return;
       }
+      if (
+        event.composedPath().includes(panel) &&
+        event.key === 'Enter' &&
+        (event.ctrlKey || event.metaKey) &&
+        !settingsOpen &&
+        !minimized
+      ) {
+        event.preventDefault();
+        act(save);
+        return;
+      }
       if (event.composedPath().includes(panel)) return;
-      if (reviewing && ['Enter', ' '].includes(event.key)) {
+      if (selectionActive() && ['Enter', ' '].includes(event.key)) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
@@ -495,10 +653,23 @@ async function mount() {
   };
   $('[data-action=dock]').onclick = () => {
     if (busy) return;
-    const left = panel.style.left !== '18px';
-    panel.style.left = left ? '18px' : 'auto';
-    panel.style.right = left ? 'auto' : '18px';
+    layout.dock();
   };
+  $('[data-action=settings]').onclick = () => {
+    if (busy) return;
+    if (minimized) setMinimized(false);
+    showSettings(!settingsOpen);
+  };
+  $('[data-action=back]').onclick = () => showSettings(false);
+  $('[data-action=minimize]').onclick = () => {
+    if (!busy) setMinimized(!minimized);
+  };
+  $('[data-action=reset-layout]').onclick = () => {
+    layout.reset();
+    setNotice('Panel layout reset.');
+  };
+  $('.note-search').addEventListener('input', renderNotes);
+  $('.note-filter').addEventListener('change', renderNotes);
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-mode]'))
     button.onclick = () => {
       if (busy || voice.recording) return;
@@ -510,15 +681,18 @@ async function mount() {
         b.setAttribute('aria-pressed', String(b === button));
       $('.hint').textContent =
         selectionMode === 'text'
-          ? 'Drag across text on the page, then add your note. Links and buttons stay inactive.'
+          ? 'Drag across a passage on the page'
           : selectionMode === 'multiple'
-            ? 'Click to add or remove elements, up to 12 per note. Shift-click also adds to a selection.'
-            : 'Click something on the page to leave a note. Use Parent to include its container.';
+            ? 'Select up to 12 elements on the page'
+            : 'Select an element on the page';
       setReviewing(true);
       renderSelection();
     };
   $('[data-action=pause]').onclick = () => {
-    if (!busy) setReviewing(!reviewing);
+    if (!busy) {
+      voice.stop();
+      setReviewing(!reviewing);
+    }
   };
   $('[data-action=cancel]').onclick = () => {
     if (!busy) {
@@ -528,7 +702,7 @@ async function mount() {
   };
   $('[data-action=parent]').onclick = () => {
     const parent = selected[0]?.parentElement;
-    if (!busy && parent && parent !== document.body) {
+    if (!busy && !voice.recording && parent && parent !== document.body) {
       quote = undefined;
       selected = [parent];
       renderSelection();
@@ -553,15 +727,15 @@ async function mount() {
       );
       return;
     }
-    const currentPage = await pageContext();
-    if (currentPage.key !== page.key) {
-      setNotice('The page changed. Select the target again.');
-      return;
-    }
     busy = true;
     updateControls();
     renderNotes();
     try {
+      const currentPage = await pageContext();
+      if (currentPage.key !== page.key) {
+        setNotice('The page changed. Select the target again.');
+        return;
+      }
       const now = new Date().toISOString();
       const id = reattaching || crypto.randomUUID(),
         old = annotations.find((a) => a.id === reattaching);
@@ -632,6 +806,8 @@ async function mount() {
       if (old)
         annotations = annotations.map((a) => (a.id === id ? annotation : a));
       else annotations.push(annotation);
+      $<HTMLSelectElement>('.note-filter').value = 'all';
+      $<HTMLInputElement>('.note-search').value = '';
       clear();
       setNotice(
         screenshot.status === 'available'
@@ -672,7 +848,7 @@ async function mount() {
       );
     });
   chrome.runtime.onMessage.addListener((message: { type: string }) => {
-    if (message.type === 'TOGGLE') setOpened(!opened);
+    if (message.type === 'TOGGLE' && !busy) setOpened(!opened);
   });
   const observer = new MutationObserver((mutations) => {
     if (
@@ -707,6 +883,7 @@ async function mount() {
   window.addEventListener('resize', draw);
   setInterval(() => {
     if (location.href !== lastUrl && !busy) {
+      voice.stop();
       lastUrl = location.href;
       selected = [];
       selectedId = null;
