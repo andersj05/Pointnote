@@ -1,3 +1,6 @@
+import { icon } from './icons';
+import type { Preferences } from './preferences';
+
 export interface SpeechResult {
   isFinal: boolean;
   0: { transcript: string };
@@ -104,7 +107,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
           'Microphone access was denied. Allow it for this page in browser site settings, then try again.',
         'audio-capture': 'No microphone is available.',
         network: 'The browser speech service is unavailable or offline.',
-        'no-speech': 'No speech detected. Hold the button and try again.',
+        'no-speech': 'No speech detected. Try recording again.',
         'language-not-supported':
           'This language is not supported. Install its on-device pack or choose another language.',
       };
@@ -137,21 +140,34 @@ export function mountVoice(
     canStart: () => boolean;
     onState: () => void;
     notice: (text: string) => void;
+    settings?: HTMLElement;
+    preferences?: Preferences;
+    onPreferences?: (value: Pick<Preferences, 'provider' | 'language'>) => void;
   },
 ) {
-  container.innerHTML = `<div class="voice-settings"><button class="secondary small" type="button" data-voice-talk aria-label="Hold to talk">◉ Hold to talk</button><details><summary>Voice &amp; privacy</summary><select aria-label="Transcription provider"><option value="local">On-device · audio stays on this computer</option><option value="browser">Browser service · audio may leave this computer</option></select><label class="privacy">Language <input aria-label="Speech language" value="en-US" size="8"></label><p class="voice-disclosure">On-device is the default. A browser language pack may need downloading. Pointnote stores no audio and uses no API keys.</p><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="quiet" type="button" data-voice-install>Install language pack</button></details></div>`;
+  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold the button or hold Space while focused">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div>`;
+  const settings = options.settings || document.createElement('div');
+  if (!options.settings) container.append(settings);
+  settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
   const talk = container.querySelector<HTMLButtonElement>('[data-voice-talk]')!;
-  const select = container.querySelector<HTMLSelectElement>('select')!;
-  const consent = container.querySelector<HTMLInputElement>(
+  const toggle = container.querySelector<HTMLButtonElement>(
+    '[data-voice-toggle]',
+  )!;
+  const talkLabel = container.querySelector<HTMLElement>('.talk-label')!;
+  const select = settings.querySelector<HTMLSelectElement>('select')!;
+  const consent = settings.querySelector<HTMLInputElement>(
     '.voice-consent input',
   )!;
-  const language = container.querySelector<HTMLInputElement>(
+  const language = settings.querySelector<HTMLInputElement>(
     '[aria-label="Speech language"]',
   )!;
-  const install = container.querySelector<HTMLButtonElement>(
+  const install = settings.querySelector<HTMLButtonElement>(
     '[data-voice-install]',
   )!;
   let provider: TranscriptionProvider | undefined;
+  let handsFree = false,
+    session = 0,
+    installing = false;
   let recording = false,
     transcript = '',
     providerId = '',
@@ -160,17 +176,24 @@ export function mountVoice(
   const finish = () => {
     recording = false;
     talk.classList.remove('recording');
-    talk.textContent = '◉ Hold to talk';
+    talkLabel.textContent = 'Hold to talk';
+    talk.setAttribute('aria-label', 'Hold to talk');
+    toggle.classList.remove('recording');
+    toggle.innerHTML = icon('record');
+    toggle.setAttribute('aria-label', 'Start hands-free recording');
+    toggle.setAttribute('title', 'Click to record hands-free');
+    toggle.setAttribute('aria-pressed', 'false');
+    consent.disabled = false;
     select.disabled = false;
     language.disabled = false;
-    install.disabled = false;
+    install.disabled = installing;
     options.onState();
   };
-  const start = () => {
+  const start = (isHandsFree = false) => {
     if (recording || !options.canStart()) return;
     if (select.value === 'browser' && !consent.checked) {
       options.notice(
-        'Open Voice & privacy and allow browser audio processing before using that provider.',
+        'Open Settings and allow browser audio processing before using that provider.',
       );
       return;
     }
@@ -181,26 +204,48 @@ export function mountVoice(
     providerId = provider.id;
     base = options.getDraft();
     previousTranscript = transcript;
+    const currentSession = ++session;
+    handsFree = isHandsFree;
     recording = true;
     talk.classList.add('recording');
-    talk.textContent = '● Listening… release to finish';
+    talkLabel.textContent = handsFree ? 'Listening…' : 'Release to finish';
+    toggle.classList.add('recording');
+    toggle.innerHTML = icon('stop');
+    toggle.setAttribute('aria-label', 'Stop recording');
+    toggle.setAttribute('title', 'Stop recording');
+    toggle.setAttribute('aria-pressed', 'true');
+    consent.disabled = true;
     select.disabled = true;
     language.disabled = true;
     install.disabled = true;
     options.onState();
     options.notice(
-      'Listening. Release to finish, then review and edit the transcript before saving.',
+      handsFree
+        ? 'Listening. Click Stop when you’re done.'
+        : 'Listening. Release to finish.',
     );
     void provider
       .start(
         (text) => {
+          if (currentSession !== session) return;
           transcript = [previousTranscript, text].filter(Boolean).join(' ');
           options.setDraft(base + (base && text ? '\n' : '') + text);
         },
-        finish,
-        (error) => options.notice(error),
+        () => {
+          if (currentSession !== session) return;
+          finish();
+          options.notice('Recording finished. Review your note before saving.');
+        },
+        (error) => {
+          if (currentSession !== session) return;
+          session++;
+          provider?.abort();
+          finish();
+          options.notice(error);
+        },
       )
       .catch((error: unknown) => {
+        if (currentSession !== session) return;
         options.notice(error instanceof Error ? error.message : String(error));
         finish();
       });
@@ -214,9 +259,12 @@ export function mountVoice(
     talk.setPointerCapture(event.pointerId);
     start();
   });
-  talk.addEventListener('pointerup', stop);
-  talk.addEventListener('pointercancel', stop);
-  talk.addEventListener('lostpointercapture', stop);
+  const release = () => {
+    if (!handsFree) stop();
+  };
+  talk.addEventListener('pointerup', release);
+  talk.addEventListener('pointercancel', release);
+  talk.addEventListener('lostpointercapture', release);
   talk.addEventListener('keydown', (event) => {
     if ([' ', 'Enter'].includes(event.key)) {
       event.preventDefault();
@@ -226,23 +274,41 @@ export function mountVoice(
   talk.addEventListener('keyup', (event) => {
     if ([' ', 'Enter'].includes(event.key)) {
       event.preventDefault();
-      stop();
+      release();
     }
   });
+  talk.addEventListener('blur', release);
+  toggle.onclick = () => {
+    if (recording) stop();
+    else start(true);
+  };
   window.addEventListener('blur', stop);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stop();
   });
-  select.onchange = () => {
-    container.querySelector<HTMLElement>('.voice-consent')!.hidden =
+  const renderSettings = () => {
+    settings.querySelector<HTMLElement>('.voice-consent')!.hidden =
       select.value !== 'browser';
     consent.checked = false;
     install.hidden = select.value !== 'local';
-    container.querySelector('.voice-disclosure')!.textContent =
+    settings.querySelector('.voice-disclosure')!.textContent =
       select.value === 'local'
-        ? 'Audio stays on this computer. A language pack may need downloading. Pointnote stores no audio and uses no API keys.'
-        : 'Your browser controls transcription. Audio may be sent to its speech provider. Pointnote has no account, server, or API key. Review the transcript before saving.';
+        ? 'Audio stays on this computer. Requires browser support and a language pack.'
+        : 'Audio may be sent to your browser’s speech provider. Your permission is required below.';
   };
+  select.value = options.preferences?.provider || 'local';
+  language.value = options.preferences?.language || 'en-US';
+  renderSettings();
+  const persist = () =>
+    options.onPreferences?.({
+      provider: select.value as Preferences['provider'],
+      language: language.value.trim() || 'en-US',
+    });
+  select.onchange = () => {
+    renderSettings();
+    persist();
+  };
+  language.onchange = persist;
   install.onclick = () => {
     const Constructor = browserRecognition();
     if (!Constructor?.install) {
@@ -251,6 +317,7 @@ export function mountVoice(
       );
       return;
     }
+    installing = true;
     install.disabled = true;
     options.notice(
       'Downloading the on-device language pack through your browser…',
@@ -268,7 +335,8 @@ export function mountVoice(
       )
       .catch((error: unknown) => options.notice(String(error)))
       .finally(() => {
-        install.disabled = false;
+        installing = false;
+        install.disabled = recording;
       });
   };
   return {
@@ -280,6 +348,7 @@ export function mountVoice(
         ? { method: 'voice' as const, provider: providerId, transcript }
         : { method: 'typed' as const },
     reset: () => {
+      session++;
       provider?.abort();
       transcript = '';
       previousTranscript = '';
