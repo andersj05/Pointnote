@@ -4,6 +4,7 @@ import { matchTarget } from './anchor';
 import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
+import { mountVoice } from './voice';
 import type { Annotation, PageContext } from './types';
 
 const guard = globalThis as typeof globalThis & { __pointnote?: boolean };
@@ -73,6 +74,20 @@ async function mount() {
   const setNotice = (message: string) => {
     $('.notice').textContent = message;
   };
+  const voice = mountVoice($('.voice-slot'), {
+    getDraft: () => feedback.value,
+    setDraft: (value) => {
+      feedback.value = value;
+      updateControls();
+    },
+    canStart: () => {
+      if (!selected.length)
+        setNotice('Select a target before recording feedback.');
+      return !busy && !reattaching && selected.length > 0;
+    },
+    onState: updateControls,
+    notice: setNotice,
+  });
   const act = (action: () => Promise<void>) => {
     void action().catch((error: unknown) =>
       setNotice(error instanceof Error ? error.message : String(error)),
@@ -80,7 +95,10 @@ async function mount() {
   };
   function updateControls() {
     $<HTMLButtonElement>('[data-action=save]').disabled =
-      busy || !selected.length || (!reattaching && !feedback.value.trim());
+      busy ||
+      voice.recording ||
+      !selected.length ||
+      (!reattaching && !feedback.value.trim());
     $<HTMLButtonElement>('[data-action=export]').disabled =
       busy || !annotations.length;
     $<HTMLButtonElement>('[data-action=parent]').disabled =
@@ -295,6 +313,7 @@ async function mount() {
     await reconcile();
   }
   function clear() {
+    voice.reset();
     selected = [];
     selectedId = null;
     reattaching = null;
@@ -312,6 +331,7 @@ async function mount() {
     draw();
   }
   function setOpened(value: boolean) {
+    if (!value) voice.stop();
     opened = value;
     panel.hidden = !value;
     shield.hidden = !value || !reviewing;
@@ -361,7 +381,7 @@ async function mount() {
   shield.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (busy || !reviewing) return;
+    if (busy || voice.recording || !reviewing) return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
     selected = [element];
@@ -449,7 +469,12 @@ async function mount() {
     act(save);
   });
   async function save() {
-    if (busy || !selected.length || (!reattaching && !feedback.value.trim()))
+    if (
+      busy ||
+      voice.recording ||
+      !selected.length ||
+      (!reattaching && !feedback.value.trim())
+    )
       return;
     if (selected.some((el) => !el.isConnected)) {
       setNotice(
@@ -501,7 +526,7 @@ async function mount() {
           reason: old ? 'Explicitly reattached by user.' : 'Selected by user.',
           checkedAt: now,
         },
-        input: old?.input ?? { method: 'typed' },
+        input: old?.input ?? voice.input(),
         reattachments: old
           ? [
               ...old.reattachments,
