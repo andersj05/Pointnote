@@ -46,6 +46,8 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
   });
 });
 let writeQueue: Promise<unknown> = Promise.resolve();
+let captureQueue: Promise<unknown> = Promise.resolve();
+let lastCapture = 0;
 chrome.runtime.onMessage.addListener(
   (message: Request, sender, respond: (value: Response<unknown>) => void) => {
     if (sender.id !== chrome.runtime.id || !sender.tab || sender.frameId !== 0)
@@ -79,12 +81,15 @@ chrome.runtime.onMessage.addListener(
           });
           return null;
         case 'CAPTURE': {
+          const delay = Math.max(0, 650 - (Date.now() - lastCapture));
+          if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
           const [active] = await chrome.tabs.query({
             active: true,
             windowId: tab.windowId,
           });
           if (active?.id !== tab.id)
             throw new Error('The reviewed tab is not active.');
+          lastCapture = Date.now();
           const data = await chrome.tabs.captureVisibleTab(tab.windowId, {
             format: 'png',
           });
@@ -103,7 +108,9 @@ chrome.runtime.onMessage.addListener(
     const task =
       message.type === 'PUT' || message.type === 'DELETE'
         ? (writeQueue = writeQueue.then(handle, handle))
-        : handle();
+        : message.type === 'CAPTURE'
+          ? (captureQueue = captureQueue.then(handle, handle))
+          : handle();
     void task.then(
       (value) => respond({ ok: true, value }),
       (error: unknown) =>

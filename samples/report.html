@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>The quiet advantage — a research note</title>
+    <link rel="stylesheet" href="sample.css" />
+  </head>
+  <body>
+    <nav>
+      <a class="wordmark" href="/">fieldnotes<span> / research</span></a>
+      <div>
+        <a href="/frontend.html">Frontend demo ↗</a
+        ><span class="edition">NO. 024 / SEPTEMBER 2026</span>
+      </div>
+    </nav>
+    <main>
+      <div class="kicker">PRODUCT RESEARCH <span>•</span> 8 MIN READ</div>
+      <header class="report-hero">
+        <h1 id="report-title">The quiet<br /><em>advantage.</em></h1>
+        <p class="dek">Why the most useful tools give us more room to think.</p>
+        <div class="byline">
+          <span class="avatar">FL</span>
+          <div>
+            Fieldnotes Lab<br /><small
+              >Research memo · September 10, 2026</small
+            >
+          </div>
+        </div>
+      </header>
+      <div class="rule"></div>
+      <section id="summary" aria-label="Executive summary">
+        <div class="section-number">01 / THE FINDING</div>
+        <h2>Less friction. More intention.</h2>
+        <p id="evidence-claim">
+          Teams that used a focused workspace were 38% more likely to return to
+          their core task after an interruption. A quieter interface appears to
+          support deeper, more sustained work.
+        </p>
+        <p>
+          We observed 24 product teams over six weeks. Their workflows varied,
+          but a common pattern emerged: when the next step was clear, people
+          spent less time negotiating with the tool.
+        </p>
+        <aside class="pullquote">
+          “The best interface is the one that leaves you with a clearer
+          thought.”<span>— Interview participant, design lead</span>
+        </aside>
+      </section>
+      <section id="results" aria-label="Study results">
+        <div class="section-number">02 / THE SIGNAL</div>
+        <h2>A little space changes the picture.</h2>
+        <figure
+          id="retention-chart"
+          role="img"
+          aria-label="Return to task: focused workspace 76%, standard workspace 55%"
+        >
+          <div class="chart-head">
+            <span>Return to task after interruption</span
+            ><span>OBSERVED RATE</span>
+          </div>
+          <div class="bar-row">
+            <span>Focused</span>
+            <div class="bar focused" style="width: 76%">76%</div>
+          </div>
+          <div class="bar-row">
+            <span>Standard</span>
+            <div class="bar standard" style="width: 55%">55%</div>
+          </div>
+          <figcaption>
+            Percentage of sessions returning to the original task within five
+            minutes.
+          </figcaption>
+        </figure>
+      </section>
+      <section id="recommendations">
+        <div class="section-number">03 / WHAT TO TRY</div>
+        <h2>Make room for the work.</h2>
+        <div id="recommendation-cards" class="recommendation-grid">
+          <article>
+            <span>01</span>
+            <h3>Reduce the noise</h3>
+            <p>Keep only the controls that matter in the moment.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <h3>Keep context close</h3>
+            <p>Put decisions beside the information they depend on.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <h3>Leave a trail</h3>
+            <p>Capture the thought before it becomes a task.</p>
+          </article>
+        </div>
+        <button
+          id="download-report"
+          class="cta"
+          onclick="
+            document.querySelector('#action-result').textContent =
+              'Report requested'
+          "
+        >
+          Get the full report ↗
+        </button>
+        <p id="action-result" aria-live="polite"></p>
+      </section>
+      <section class="test-lab">
+        <h2>Review practice</h2>
+        <p>
+          This report is fictional test content. Try these three notes: add
+          evidence for the 38% claim; include the sample size in the chart;
+          simplify the three recommendation cards.
+        </p>
+        <label
+          >Private form value
+          <input value="PRIVATE-FORM-123" aria-label="Private form value"
+        /></label>
+        <div data-pointnote-private>PRIVATE-ACCOUNT-456</div>
+        <p>With selection paused, use these controls to test reattachment:</p>
+        <button
+          id="change-claim"
+          onclick="
+            document.querySelector('#evidence-claim').textContent =
+              'A new unrelated claim replaced the original paragraph.'
+          "
+        >
+          Replace the claim
+        </button>
+        <button
+          id="remove-chart"
+          onclick="document.querySelector('#retention-chart')?.remove()"
+        >
+          Remove the chart
+        </button>
+        <button
+          id="duplicate-cards"
+          onclick="
+            const n = document.querySelector('#recommendation-cards');
+            n.removeAttribute('id');
+            n.after(n.cloneNode(true));
+          "
+        >
+          Duplicate the cards
+        </button>
+      </section>
+      <footer>
+        FIELDNOTES LAB
+        <span>A sample report for Pointnote. All study data is fictional.</span>
+      </footer>
+    </main>
+  </body>
+</html>

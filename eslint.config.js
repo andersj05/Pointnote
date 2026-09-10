@@ -19,7 +19,13 @@ export default ts.config(
         process: 'readonly',
         URL: 'readonly',
         setTimeout: 'readonly',
+        Buffer: 'readonly',
       },
     },
   },
+  {
+    files: ['samples/*.js'],
+    languageOptions: { globals: { document: 'readonly', history: 'readonly' } },
+  },
+  { files: ['tests/e2e/*.ts'], rules: { 'no-empty-pattern': 'off' } },
 );
