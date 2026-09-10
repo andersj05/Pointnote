@@ -5,7 +5,8 @@ import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
 import { mountVoice } from './voice';
-import type { Annotation, PageContext } from './types';
+import { readTextSelection, rangeForQuote } from './range';
+import type { Annotation, PageContext, Target, Bounds } from './types';
 
 const guard = globalThis as typeof globalThis & { __pointnote?: boolean };
 if (!guard.__pointnote) {
@@ -25,7 +26,7 @@ async function mount() {
     <div class="shield" aria-hidden="true"></div><div class="highlights"></div><div class="markers"></div>
     <aside class="panel" aria-label="Pointnote review">
       <header class="top">
-        <div class="brand-row"><span class="logo" aria-hidden="true">p</span><span class="brand">pointnote</span><span class="local">● Local only</span><button class="icon" data-action="close" aria-label="Close Pointnote">×</button></div>
+        <div class="brand-row"><span class="logo" aria-hidden="true">p</span><span class="brand">pointnote</span><span class="local">● Local notes</span><button class="icon" data-action="dock" aria-label="Move sidebar to the other side">↔</button><button class="icon" data-action="close" aria-label="Close Pointnote">×</button></div>
         <div class="page-title"></div>
         <div class="review-row"><span class="mode-label"><span class="dot"></span><span class="mode-text">Review mode</span></span><button class="quiet" data-action="pause">Pause selection</button></div>
       </header>
@@ -33,7 +34,7 @@ async function mount() {
         <div class="eyebrow">A little context goes a long way</div>
         <h1 class="instruction">Point to it.<br>Put it into words.</h1>
         <p class="hint">Click something on the page to leave a note. Your words stay yours.</p>
-        <div class="selection-tools" hidden></div>
+        <div class="tabs" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">Element</button><button data-mode="text" aria-pressed="false">Text range</button><button data-mode="multiple" aria-pressed="false">Multiple</button></div>
         <div class="target" hidden><div class="target-top"><span class="target-name"></span><button class="quiet" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
         <form class="composer">
           <label class="feedback-label" for="feedback">Your feedback</label>
@@ -71,6 +72,8 @@ async function mount() {
     refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let matching = false,
     matchAgain = false;
+  let selectionMode: 'element' | 'text' | 'multiple' = 'element';
+  let quote: Target['range'];
   const setNotice = (message: string) => {
     $('.notice').textContent = message;
   };
@@ -119,7 +122,9 @@ async function mount() {
         .map((el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''))
         .join(', ');
       $('.excerpt').textContent =
-        safeText(selected[0]).slice(0, 260) || '(No text — visual element)';
+        quote?.exact ||
+        safeText(selected[0]).slice(0, 260) ||
+        '(No text — visual element)';
     }
     updateControls();
     draw();
@@ -128,9 +133,9 @@ async function mount() {
     highlights.replaceChildren();
     markers.replaceChildren();
     if (!opened) return;
-    const addOutline = (el: Element, hover: boolean) => {
+    const addOutline = (el: Element, hover: boolean, rect?: Bounds) => {
       if (!el.isConnected) return;
-      const r = bounds(el),
+      const r = rect || bounds(el),
         box = document.createElement('div');
       box.className = 'outline' + (hover ? ' hover' : '');
       Object.assign(box.style, {
@@ -141,7 +146,12 @@ async function mount() {
       });
       highlights.append(box);
     };
-    selected.forEach((el) => addOutline(el, false));
+    selected.forEach((el) => {
+      const range = quote && rangeForQuote(el, quote.exact);
+      if (range)
+        for (const rect of range.getClientRects()) addOutline(el, false, rect);
+      else addOutline(el, false);
+    });
     if (reviewing && hovered && !selected.includes(hovered))
       addOutline(hovered, true);
     annotations.forEach((a, i) => {
@@ -157,6 +167,8 @@ async function mount() {
         return;
       const marker = document.createElement('button');
       marker.className = 'marker';
+      marker.style.pointerEvents =
+        reviewing && selectionMode === 'text' ? 'none' : 'auto';
       marker.textContent = String(i + 1);
       marker.title = a.originalComment;
       marker.setAttribute('aria-label', 'Revisit note ' + (i + 1));
@@ -314,6 +326,7 @@ async function mount() {
   }
   function clear() {
     voice.reset();
+    quote = undefined;
     selected = [];
     selectedId = null;
     reattaching = null;
@@ -322,7 +335,7 @@ async function mount() {
   }
   function setReviewing(value: boolean) {
     reviewing = value;
-    shield.hidden = !value || !opened;
+    shield.hidden = !value || !opened || selectionMode === 'text';
     $('.mode-text').textContent = value ? 'Review mode' : 'Page interaction on';
     $('[data-action=pause]').textContent = value
       ? 'Pause selection'
@@ -334,7 +347,7 @@ async function mount() {
     if (!value) voice.stop();
     opened = value;
     panel.hidden = !value;
-    shield.hidden = !value || !reviewing;
+    shield.hidden = !value || !reviewing || selectionMode === 'text';
     act(async () => {
       await rpc({ type: 'ENABLED', enabled: value });
     });
@@ -344,6 +357,7 @@ async function mount() {
     if (busy) return;
     selectedId = a.id;
     reattaching = null;
+    quote = a.targets[0].range;
     const targets = resolved.get(a.id);
     if (!targets?.length || a.status === 'needs-reattachment') {
       selected = [];
@@ -384,7 +398,16 @@ async function mount() {
     if (busy || voice.recording || !reviewing) return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
-    selected = [element];
+    quote = undefined;
+    if (selectionMode === 'multiple' || event.shiftKey) {
+      if (selected.includes(element))
+        selected = selected.filter((el) => el !== element);
+      else if (selected.length < 12) selected = [...selected, element];
+      else {
+        setNotice('A note can include up to 12 elements.');
+        return;
+      }
+    } else selected = [element];
     selectedId = reattaching;
     hovered = null;
     setNotice('');
@@ -413,6 +436,29 @@ async function mount() {
         if (!opened || !reviewing) return;
         const path = event.composedPath();
         if (path.includes(panel) || path.includes(markers)) return;
+        if (
+          selectionMode === 'text' &&
+          ['pointerdown', 'pointerup', 'mousedown', 'mouseup'].includes(type)
+        ) {
+          event.stopImmediatePropagation();
+          if (type === 'mouseup' && !busy && !voice.recording)
+            setTimeout(() => {
+              const selection = readTextSelection(window.getSelection());
+              if (!selection) {
+                setNotice(
+                  'Select a unique text passage within one section (up to 1,600 characters). Private fields are excluded.',
+                );
+                return;
+              }
+              selected = [selection.element];
+              quote = selection.quote;
+              selectedId = reattaching;
+              renderSelection();
+              setNotice('Text selected. Add your feedback.');
+              feedback.focus();
+            }, 0);
+          return;
+        }
         if (type === 'click' && path.includes(shield)) return; // selection handler owns it
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -447,6 +493,30 @@ async function mount() {
   $('[data-action=close]').onclick = () => {
     if (!busy) setOpened(false);
   };
+  $('[data-action=dock]').onclick = () => {
+    if (busy) return;
+    const left = panel.style.left !== '18px';
+    panel.style.left = left ? '18px' : 'auto';
+    panel.style.right = left ? 'auto' : '18px';
+  };
+  for (const button of root.querySelectorAll<HTMLButtonElement>('[data-mode]'))
+    button.onclick = () => {
+      if (busy || voice.recording) return;
+      selectionMode = button.dataset.mode as typeof selectionMode;
+      selected = [];
+      quote = undefined;
+      hovered = null;
+      for (const b of root.querySelectorAll('[data-mode]'))
+        b.setAttribute('aria-pressed', String(b === button));
+      $('.hint').textContent =
+        selectionMode === 'text'
+          ? 'Drag across text on the page, then add your note. Links and buttons stay inactive.'
+          : selectionMode === 'multiple'
+            ? 'Click to add or remove elements, up to 12 per note. Shift-click also adds to a selection.'
+            : 'Click something on the page to leave a note. Use Parent to include its container.';
+      setReviewing(true);
+      renderSelection();
+    };
   $('[data-action=pause]').onclick = () => {
     if (!busy) setReviewing(!reviewing);
   };
@@ -459,6 +529,7 @@ async function mount() {
   $('[data-action=parent]').onclick = () => {
     const parent = selected[0]?.parentElement;
     if (!busy && parent && parent !== document.body) {
+      quote = undefined;
       selected = [parent];
       renderSelection();
     }
@@ -494,13 +565,26 @@ async function mount() {
       const now = new Date().toISOString();
       const id = reattaching || crypto.randomUUID(),
         old = annotations.find((a) => a.id === reattaching);
-      const targets = selected.map((el) => captureTarget(el));
+      const targets = selected.map((el) => {
+        const target = captureTarget(el, quote);
+        const range = quote && rangeForQuote(el, quote.exact);
+        if (quote && !range)
+          throw new Error(
+            'The selected text changed. Select the passage again.',
+          );
+        if (range) {
+          const r = range.getBoundingClientRect();
+          target.bounds = { x: r.x, y: r.y, width: r.width, height: r.height };
+        }
+        return target;
+      });
       const screenshot = $<HTMLInputElement>('.include-screenshot').checked
         ? await captureScreenshot(
             selected,
             host,
             root,
             'screenshots/' + id + '-' + Date.now() + '.png',
+            targets.map((target) => target.bounds),
           )
         : {
             status: 'unavailable' as const,
@@ -516,7 +600,11 @@ async function mount() {
         createdAt: old?.createdAt ?? now,
         updatedAt: now,
         page: currentPage,
-        selectionKind: selected.length > 1 ? 'multiple' : 'element',
+        selectionKind: quote
+          ? 'text-range'
+          : selected.length > 1
+            ? 'multiple'
+            : 'element',
         targets,
         screenshot,
         status: old?.resolution ?? 'open',
@@ -530,7 +618,12 @@ async function mount() {
         reattachments: old
           ? [
               ...old.reattachments,
-              { at: now, targets: old.targets, screenshot: old.screenshot },
+              {
+                at: now,
+                targets: old.targets,
+                screenshot: old.screenshot,
+                page: old.page,
+              },
             ]
           : [],
       };
@@ -556,11 +649,13 @@ async function mount() {
   $('[data-action=export]').onclick = () =>
     act(async () => {
       if (busy) return;
-      await reconcile();
+      while (matching) await new Promise((resolve) => setTimeout(resolve, 20));
       annotations = await rpc<Annotation[]>({
         type: 'LIST',
         pageKey: page.key,
       });
+      while (matching) await new Promise((resolve) => setTimeout(resolve, 20));
+      await reconcile();
       const bytes = createBundle(annotations),
         blob = new Blob([new Uint8Array(bytes)], { type: 'application/zip' });
       const url = URL.createObjectURL(blob),

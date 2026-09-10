@@ -70,7 +70,12 @@ export interface Annotation {
     checkedAt: string;
   };
   input: { method: 'typed' | 'voice'; provider?: string; transcript?: string };
-  reattachments: { at: string; targets: Target[]; screenshot: Screenshot }[];
+  reattachments: {
+    at: string;
+    targets: Target[];
+    screenshot: Screenshot;
+    page: PageContext;
+  }[];
 }
 export type Request =
   | { type: 'LIST'; pageKey: string }

@@ -1,19 +1,12 @@
 import { PRIVATE_SELECTOR, bounds } from './context';
 import { rpc } from './rpc';
-import type { Screenshot } from './types';
-export async function captureScreenshot(
-  elements: Element[],
-  host: HTMLElement,
-  root: ShadowRoot,
-  path: string,
-): Promise<Screenshot> {
-  const masks = document.createElement('div');
-  masks.className = 'capture-masks';
+import type { Screenshot, Bounds } from './types';
+function privateRegions(host: HTMLElement) {
   const sensitive = [...document.querySelectorAll(PRIVATE_SELECTOR)];
-  // Shadow roots may hide private form controls; mask the host conservatively.
   for (const el of document.querySelectorAll('*'))
-    if (el.shadowRoot && el !== host) sensitive.push(el);
-  const regions = sensitive
+    if ((el.shadowRoot || el.localName.includes('-')) && el !== host)
+      sensitive.push(el);
+  return [...new Set(sensitive)]
     .filter((el) => !host.contains(el))
     .flatMap((el) => [...el.getClientRects()])
     .filter(
@@ -25,6 +18,17 @@ export async function captureScreenshot(
         r.top < innerHeight &&
         r.left < innerWidth,
     );
+}
+export async function captureScreenshot(
+  elements: Element[],
+  host: HTMLElement,
+  root: ShadowRoot,
+  path: string,
+  outlines?: Bounds[],
+): Promise<Screenshot> {
+  const masks = document.createElement('div');
+  masks.className = 'capture-masks';
+  const regions = privateRegions(host);
   for (const r of regions) {
     const mask = document.createElement('div');
     mask.className = 'privacy-mask';
@@ -64,6 +68,11 @@ export async function captureScreenshot(
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
     const data = await rpc<string>({ type: 'CAPTURE' });
+    const afterRegions = privateRegions(host);
+    if (JSON.stringify(regions) !== JSON.stringify(afterRegions))
+      throw new Error(
+        'Private regions moved during capture. Capture was discarded; try again when the page is still.',
+      );
     if (
       innerWidth !== viewport.width ||
       innerHeight !== viewport.height ||
@@ -107,7 +116,7 @@ export async function captureScreenshot(
     ctx.strokeStyle = '#d6512b';
     ctx.lineWidth = 3;
     ctx.font = 'bold 16px sans-serif';
-    targetRects.forEach((r, i) => {
+    (outlines || targetRects).forEach((r, i) => {
       ctx.strokeRect(
         r.x * scaleX,
         r.y * scaleY,
@@ -129,7 +138,7 @@ export async function captureScreenshot(
       width: canvas.width,
       height: canvas.height,
       redactedRegions: regions.length,
-      note: 'Visible viewport; orange outlines label targets in selection order. Form controls, editable/private regions, embedded frames and open shadow hosts are masked. Offscreen portions are not captured.',
+      note: 'Visible viewport; orange outlines label targets in selection order. Form controls, editable/private regions, embedded frames, custom elements and open shadow hosts are masked. Offscreen portions are not captured.',
     };
   } catch (error) {
     return {

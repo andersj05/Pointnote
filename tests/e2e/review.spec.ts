@@ -194,3 +194,120 @@ test('localhost controls are blocked during review, normal when paused, with san
   await page.locator('#complete-task').click();
   await expect(page.locator('#project-status')).toHaveText('2 task completed');
 });
+
+test('multiple selection, precise text ranges, and editable voice transcripts', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Multiple', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await select(page, '#summary > p:nth-of-type(2)');
+  await save(page, 'Connect these two paragraphs more clearly.', 1);
+  await page.getByRole('button', { name: 'Text range', exact: true }).click();
+  await page
+    .locator('#evidence-claim')
+    .evaluate((el) =>
+      el.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+  const rect = await page.locator('#evidence-claim').evaluate((el) => {
+    const range = document.createRange();
+    const text = el.firstChild!.textContent!;
+    range.setStart(el.firstChild!, text.indexOf('Teams'));
+    range.setEnd(
+      el.firstChild!,
+      text.indexOf('workspace') + 'workspace'.length,
+    );
+    const r = range.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  await page.mouse.move(rect.x + 1, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rect.x + rect.width - 1, rect.y + rect.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await expect(page.locator('.target')).toBeVisible();
+  await expect(page.locator('.excerpt')).toContainText('focused workspace');
+  await save(page, 'Define what you mean by a focused workspace.', 2);
+  await page.getByRole('button', { name: 'Element', exact: true }).click();
+  await select(page, '#evidence-claim');
+  // Inject a deterministic recognizer into the extension's isolated world.
+  // This tests the real voice UI and storage without claiming microphone/service coverage.
+  const cdp = await context.newCDPSession(page);
+  const worlds: { id: number; name: string; origin: string }[] = [];
+  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+    worlds.push(world),
+  );
+  await cdp.send('Runtime.enable');
+  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'));
+  expect(world, JSON.stringify(worlds)).toBeTruthy();
+  await cdp.send('Runtime.evaluate', {
+    contextId: world!.id,
+    expression: `globalThis.SpeechRecognition = class {
+    static async available() { return 'available'; }
+    processLocally = true;
+    start() { this.onresult({ results: [{ isFinal: true, 0: { transcript: 'this needs more proof' } }] }); }
+    stop() { this.onend?.(); } abort() { this.onend?.(); }
+  }`,
+  });
+  const talk = page.getByRole('button', { name: 'Hold to talk', exact: true });
+  await talk.focus();
+  await page.keyboard.down('Space');
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toHaveValue('this needs more proof');
+  await page.keyboard.up('Space');
+  await save(page, 'This needs more proof. Add a citation.', 3);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  const files = unzipSync(
+    new Uint8Array(await readFile((await (await download).path())!)),
+  );
+  const data = JSON.parse(strFromU8(files['feedback.json']));
+  expect(data.annotations[0].selectionKind).toBe('multiple');
+  expect(data.annotations[0].targets).toHaveLength(2);
+  expect(data.annotations[1].selectionKind).toBe('text-range');
+  expect(data.annotations[1].targets[0].range.exact).toContain(
+    'focused workspace',
+  );
+  expect(data.annotations[2].originalComment).toBe(
+    'This needs more proof. Add a citation.',
+  );
+  expect(data.annotations[2].input.transcript).toBe('this needs more proof');
+  await cdp.detach();
+});
+test('ambiguous targets remain explicit and screenshot opt-out is exported', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await page.locator('.include-screenshot').uncheck();
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Keep this exact note.');
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.getByRole('status')).toContainText(
+    'Screenshot capture disabled by the user.',
+  );
+  await page
+    .locator('.card')
+    .getByRole('button', { name: 'Mark addressed' })
+    .click();
+  await expect(page.locator('.card .status')).toHaveText('addressed');
+  await page.locator('#evidence-claim').evaluate((el) => {
+    el.removeAttribute('id');
+    el.after(el.cloneNode(true));
+  });
+  await expect(page.locator('.status.missing')).toHaveCount(1);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  const files = unzipSync(
+    new Uint8Array(await readFile((await (await download).path())!)),
+  );
+  const data = JSON.parse(strFromU8(files['feedback.json']));
+  expect(data.annotations[0].attachment.state).toBe('ambiguous');
+  expect(data.annotations[0].resolution).toBe('addressed');
+  expect(data.annotations[0].screenshot.status).toBe('unavailable');
+  expect(data.annotations[0].originalComment).toBe('Keep this exact note.');
+});

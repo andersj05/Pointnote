@@ -1,6 +1,6 @@
 import type { Bounds, PageContext, Target, Locator } from './types';
 export const PRIVATE_SELECTOR =
-  'input,textarea,select,option,[contenteditable]:not([contenteditable="false"]),[data-pointnote-private],iframe,object,embed';
+  'input,textarea,select,option,[role="textbox"],[role="combobox"],[contenteditable]:not([contenteditable="false"]),[data-pointnote-private],iframe,object,embed';
 const OMIT_SELECTOR = 'script,style,noscript,template,link,meta';
 export const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 const trim = (value: string, max: number) => value.slice(0, max);
@@ -23,6 +23,13 @@ function privateElement(el: Element) {
 }
 export function sanitizedClone(el: Element): Element {
   const clone = el.cloneNode(true) as Element;
+  const comments = el.ownerDocument.createTreeWalker(
+    clone,
+    NodeFilter.SHOW_COMMENT,
+  );
+  const remove: Node[] = [];
+  while (comments.nextNode()) remove.push(comments.currentNode);
+  remove.forEach((node) => node.parentNode?.removeChild(node));
   const walk = (node: Element) => {
     if (node.matches(OMIT_SELECTOR)) {
       node.replaceChildren();
@@ -53,11 +60,16 @@ export function sanitizedClone(el: Element): Element {
       else if (name === 'href' || name === 'src') {
         if (/^(data|javascript|blob):/i.test(attribute.value))
           node.removeAttribute(name);
-        else
-          node.setAttribute(
-            name,
-            safeUrl(new URL(attribute.value, el.ownerDocument.baseURI).href),
-          );
+        else {
+          try {
+            node.setAttribute(
+              name,
+              safeUrl(new URL(attribute.value, el.ownerDocument.baseURI).href),
+            );
+          } catch {
+            node.removeAttribute(name);
+          }
+        }
       } else node.setAttribute(name, trim(attribute.value, 180));
     }
     if (isPrivate) {
