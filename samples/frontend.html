@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Gather — localhost frontend demo</title>
+    <link rel="stylesheet" href="sample.css" />
+    <style>
+      h1 {
+        font-size: 62px;
+        letter-spacing: -3px;
+      }
+      main {
+        max-width: 750px;
+      }
+      .app-card {
+        padding: 25px;
+        border: 1px solid #dce0d0;
+        border-radius: 12px;
+        background: white;
+        margin: 20px 0;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .badge {
+        font-size: 11px;
+        background: #edf1e5;
+        color: #71855e;
+        border-radius: 12px;
+        padding: 5px 10px;
+      }
+      .app-card p {
+        font-size: 13px;
+      }
+      .app-card button {
+        margin: 0;
+      }
+      .metrics {
+        display: flex;
+        gap: 55px;
+      }
+      .metrics b {
+        font:
+          30px Georgia,
+          serif;
+      }
+      .metrics small {
+        display: block;
+        margin-top: 8px;
+        color: #89927b;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/" class="wordmark">gather<span>/ your workspace</span></a
+      ><a href="/report.html">Sample report ↗</a>
+    </nav>
+    <main>
+      <div class="kicker">MONDAY, IN FOCUS</div>
+      <header class="report-hero">
+        <h1 id="app-heading">Good work starts<br />with a little space.</h1>
+        <p>Bring your projects, notes, and next steps together.</p>
+      </header>
+      <section class="app-card" id="project-card">
+        <div class="row">
+          <h2>Website refresh</h2>
+          <span class="badge">In progress</span>
+        </div>
+        <p id="project-description">
+          A thoughtful home for our next chapter. Review the direction, gather
+          feedback, and make the next decision.
+        </p>
+        <div class="metrics">
+          <div><b>12</b><small>Open tasks</small></div>
+          <div><b>4</b><small>Ready for review</small></div>
+        </div>
+        <div class="row" style="margin-top: 30px">
+          <p id="project-status">No actions yet</p>
+          <button id="complete-task" class="cta">Complete a task ↗</button>
+        </div>
+      </section>
+      <section class="app-card">
+        <h2>Quick note</h2>
+        <p>
+          Form content below must be excluded from annotation context and
+          screenshots.
+        </p>
+        <textarea aria-label="Private draft">PRIVATE-DRAFT-789</textarea>
+      </section>
+      <button id="route-change">Open activity view</button>
+      <section id="activity"></section>
+    </main>
+    <script src="frontend.js"></script>
+  </body>
+</html>

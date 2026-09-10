@@ -1,0 +1,40 @@
+{
+  "name": "pointnote",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Attach your words to the page. Export context an agent can use.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "sample": "node scripts/serve.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.0",
+    "@types/chrome": "^0.1.32",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "fake-indexeddb": "^6.2.0",
+    "jsdom": "^27.0.0",
+    "prettier": "^3.7.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.48.0",
+    "vitest": "^4.0.0"
+  }
+}

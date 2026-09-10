@@ -1,0 +1,31 @@
+import js from '@eslint/js';
+import ts from 'typescript-eslint';
+export default ts.config(
+  {
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'artifacts/**',
+      'test-results/**',
+      'playwright-report/**',
+    ],
+  },
+  js.configs.recommended,
+  ...ts.configs.recommended,
+  {
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+        setTimeout: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['samples/*.js'],
+    languageOptions: { globals: { document: 'readonly', history: 'readonly' } },
+  },
+  { files: ['tests/e2e/*.ts'], rules: { 'no-empty-pattern': 'off' } },
+);
