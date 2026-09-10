@@ -424,6 +424,17 @@ test('panel can move, resize, minimize and restore with layout and settings pers
     0,
   );
   await page.setViewportSize({ width: 360, height: 600 });
+  await expect
+    .poll(async () => {
+      const bounds = (await panel.boundingBox())!;
+      return (
+        bounds.x >= 8 &&
+        bounds.y >= 8 &&
+        bounds.x + bounds.width <= 352 &&
+        bounds.y + bounds.height <= 592
+      );
+    })
+    .toBe(true);
   const small = (await panel.boundingBox())!;
   expect(small.x).toBeGreaterThanOrEqual(8);
   expect(small.y).toBeGreaterThanOrEqual(8);
