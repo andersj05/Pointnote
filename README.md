@@ -69,11 +69,13 @@ Screenshots show the visible viewport with orange target outlines. Large or mult
 
 **On-device** is the default. It requires browser support for local Web Speech recognition and an installed language pack. Open **Settings → Voice**, set a language such as `en-US`, and use **Install language pack** if needed. A language pack downloads through the browser; local recognition audio stays on the computer.
 
+If the page has not been allowed microphone access, Pointnote shows **Enable microphone**. Click it once and accept the browser prompt; you do not need to keep holding a button during setup. Setup closes its audio stream immediately. Then hold **Hold to talk** or middle mouse and wait for **Listening** before speaking. On release, Pointnote finishes the transcript before unlocking your draft. The green waves are a decorative recording animation, not a volume meter; they animate only after capture begins and respect reduced-motion settings.
+
 The optional **Browser service** provider may send audio to the browser vendor's speech service. It requires a separate, explicit opt-in in the UI. Pointnote never silently switches providers, stores raw audio, or embeds private API keys. Microphone permission is requested by the browser for the reviewed page; localhost is a secure context. Support varies by browser, OS, language, and policy. A clear error leaves typed input available.
 
 The original saved comment is the text you approve after editing. The unedited recognition transcript is retained separately in `input.transcript`. The provider interface is replaceable.
 
-Provider and language preferences are remembered, but browser-service consent must be given again after a page reload. Recording stops when you pause selection, open settings, minimize or close the panel, switch away from the tab or window, or press Escape. Releasing during startup cancels that recording immediately; delayed startup or transcript callbacks cannot overwrite your next edits.
+Provider and language preferences are remembered, but browser-service consent must be given again after a page reload. Recording stops when you pause selection, open settings, minimize or close the panel, switch away from the tab, or press Escape. Hold gestures also stop on lost window focus; hands-free sessions tolerate focus moving to browser controls. Releasing before a recognition request is submitted cancels immediately. After submission, release waits briefly for the final transcript. Delayed callbacks after a session ends cannot overwrite your next edits.
 
 Read [privacy and data handling](docs/privacy.md) before reviewing sensitive material.
 
