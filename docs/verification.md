@@ -25,6 +25,9 @@ The browser suite verifies:
 17. Button and middle mouse holds stay in Starting until audio capture begins, show animated waves while listening, and retain final words delivered after release. Reduced-motion settings disable the animation.
 18. First-open onboarding requests microphone permission from a bundled extension page using Chromium’s real `getUserMedia` API and fake hardware. All setup tracks stop, the completion state survives reload and changing page origins, and recording runs in the extension-owned offscreen document.
 19. Backtick and custom modifier shortcuts survive reload, retain normal text-field typing, and record through the offscreen provider. Browser-service consent is remembered and can be revoked.
+20. New targets, revisited notes, and selection mode changes save pending drafts once, retaining the original target and exact words. Delayed speech completion is included; failed storage preserves the draft and target for retry.
+21. Recording activity stays within the voice toolbar without increasing composer height.
+22. Export saves the last pending note, offers three keyboard-accessible choices, copies real Markdown to the clipboard, and downloads standalone Markdown or the full ZIP. The selected-text fallback also copies successfully when the Clipboard API is absent; if both copy methods are blocked, the UI offers the Markdown download without claiming success.
 
 Unit tests cover privacy sanitization, bounded excerpts, URL redaction, conservative anchors, range reconstruction, page-isolated IndexedDB transactions, bundle contents, local-only voice behavior, saved and revoked browser-service consent, stale transcript rejection after clear and finish, immediate cancellation during startup, middle mouse event consumption and cancellation, and panel recovery on smaller displays.
 
