@@ -64,6 +64,10 @@ describe('replaceable speech provider', () => {
     expect(voice.phase).toBe('listening');
     voice.release('middle');
     expect(voice.phase).toBe('finishing');
+    const finished = vi.fn();
+    const completion = voice.finishDraft().then(finished);
+    await Promise.resolve();
+    expect(finished).not.toHaveBeenCalled();
     FakeRecognition.latest.onresult?.({
       results: [
         { isFinal: true, 0: { transcript: 'Final words after release' } },
@@ -71,6 +75,8 @@ describe('replaceable speech provider', () => {
     });
     expect(draft).toBe('Written context\nFinal words after release');
     FakeRecognition.latest.onend?.();
+    await completion;
+    expect(finished).toHaveBeenCalledWith(true);
     expect(voice.recording).toBe(false);
     voice.reset();
   });

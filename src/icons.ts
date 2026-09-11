@@ -1,4 +1,6 @@
 const paths = {
+  trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
   settings:
     '<path d="m9 3-1 3-3 1-2 5 2 5 3 1 1 3h6l1-3 3-1 2-5-2-5-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/>',
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
