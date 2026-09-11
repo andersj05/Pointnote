@@ -717,6 +717,7 @@ test('middle recording cancels safely and recovers from delayed startup and micr
   await page.mouse.move(90, 250);
   await page.mouse.down({ button: 'middle' });
   await page.mouse.up({ button: 'middle' });
+  await expect(feedback).toBeEnabled();
   await speech.evaluate("resolveSpeech('available'); speechPending = false");
   await expect(feedback).toBeEnabled();
   expect((await speech.evaluate('speechStarts')).result.value).toBe(0);

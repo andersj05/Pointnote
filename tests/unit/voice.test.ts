@@ -22,6 +22,65 @@ class FakeRecognition implements Recognizer {
   }
 }
 describe('replaceable speech provider', () => {
+  it('unlocks a released draft immediately while availability is still pending', async () => {
+    Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
+    let resolve!: (value: string) => void;
+    FakeRecognition.available.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    let draft = 'Written context';
+    const voice = mountVoice(document.createElement('div'), {
+      getDraft: () => draft,
+      setDraft: (value) => {
+        draft = value;
+      },
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    voice.start('middle');
+    const recognition = FakeRecognition.latest;
+    voice.release('middle');
+    expect(voice.recording).toBe(false);
+    draft = 'My updated draft';
+    resolve('available');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recognition.start).not.toHaveBeenCalled();
+    expect(draft).toBe('My updated draft');
+    voice.reset();
+  });
+  it('ignores late results after recording ends without overwriting subsequent edits', async () => {
+    Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
+    let draft = '';
+    const voice = mountVoice(document.createElement('div'), {
+      getDraft: () => draft,
+      setDraft: (value) => {
+        draft = value;
+      },
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    voice.start('middle');
+    await Promise.resolve();
+    await Promise.resolve();
+    const recognition = FakeRecognition.latest;
+    recognition.onresult?.({
+      results: [{ isFinal: true, 0: { transcript: 'Original transcript' } }],
+    });
+    voice.release('middle');
+    draft = 'My corrected note';
+    recognition.onresult?.({
+      results: [{ isFinal: true, 0: { transcript: 'Late transcript' } }],
+    });
+    expect(draft).toBe('My corrected note');
+    expect(voice.input()).toMatchObject({ transcript: 'Original transcript' });
+    voice.reset();
+  });
   it('only releases the active recording gesture and preserves hands-free sessions', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     const voice = mountVoice(document.createElement('div'), {

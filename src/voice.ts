@@ -170,12 +170,14 @@ export function mountVoice(
   let session = 0,
     installing = false;
   let recording = false,
+    starting = false,
     transcript = '',
     providerId = '',
     base = '',
     previousTranscript = '';
   const finish = () => {
     recording = false;
+    starting = false;
     talk.classList.remove('recording');
     talkLabel.textContent = 'Hold to talk';
     talk.setAttribute('aria-label', 'Hold to talk');
@@ -209,6 +211,7 @@ export function mountVoice(
     const currentSession = ++session;
     mode = requestedMode;
     recording = true;
+    starting = true;
     talk.classList.add('recording');
     talkLabel.textContent =
       mode === 'hands-free'
@@ -244,6 +247,7 @@ export function mountVoice(
         },
         () => {
           if (currentSession !== session) return;
+          session++;
           finish();
           options.notice('Recording finished. Review your note before saving.');
         },
@@ -255,14 +259,24 @@ export function mountVoice(
           options.notice(error);
         },
       )
+      .then(() => {
+        if (currentSession === session) starting = false;
+      })
       .catch((error: unknown) => {
         if (currentSession !== session) return;
+        session++;
         options.notice(error instanceof Error ? error.message : String(error));
         finish();
       });
   };
   const stop = () => {
-    if (recording) provider?.stop();
+    if (!recording) return;
+    provider?.stop();
+    if (starting) {
+      session++;
+      finish();
+      options.notice('Recording canceled. Your draft is still here.');
+    }
   };
   talk.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
