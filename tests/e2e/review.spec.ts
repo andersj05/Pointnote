@@ -558,6 +558,10 @@ test('hands-free recording toggles and stops when leaving the workspace', async 
     page.getByRole('button', { name: 'Stop recording', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect(
+    page.getByRole('button', { name: 'Stop recording', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(
     page.getByRole('textbox', { name: 'Your feedback' }),
   ).toHaveValue('Add supporting evidence.');

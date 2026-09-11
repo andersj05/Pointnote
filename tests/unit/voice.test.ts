@@ -22,6 +22,68 @@ class FakeRecognition implements Recognizer {
   }
 }
 describe('replaceable speech provider', () => {
+  it('keeps hands-free recording alive when a permission prompt takes focus', async () => {
+    Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
+    const voice = mountVoice(document.createElement('div'), {
+      getDraft: () => '',
+      setDraft: () => {},
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    voice.start('hands-free');
+    await Promise.resolve();
+    window.dispatchEvent(new Event('blur'));
+    expect(FakeRecognition.latest.stop).not.toHaveBeenCalled();
+    expect(voice.recording).toBe(true);
+    voice.stop();
+    expect(voice.recording).toBe(false);
+    voice.reset();
+  });
+  it.each(['downloadable', 'downloading', 'unavailable'])(
+    'explains the exact browser pack state: %s',
+    async (availability) => {
+      FakeRecognition.available.mockResolvedValueOnce(availability);
+      const provider = new BrowserSpeechProvider(
+        true,
+        'en-GB',
+        () => FakeRecognition,
+      );
+      await expect(provider.start(vi.fn(), vi.fn(), vi.fn())).rejects.toThrow(
+        availability === 'downloadable'
+          ? 'Windows language pack'
+          : availability,
+      );
+      expect(FakeRecognition.latest.start).not.toHaveBeenCalled();
+    },
+  );
+  it('verifies that an installed pack is usable before reporting it ready', async () => {
+    class InstallingRecognition extends FakeRecognition {
+      static install = vi.fn(async () => true);
+    }
+    Object.assign(globalThis, { SpeechRecognition: InstallingRecognition });
+    FakeRecognition.available.mockResolvedValueOnce('downloading');
+    const container = document.createElement('div');
+    const notice = vi.fn();
+    const voice = mountVoice(container, {
+      getDraft: () => '',
+      setDraft: () => {},
+      canStart: () => true,
+      onState: () => {},
+      notice,
+    });
+    container.querySelector<HTMLButtonElement>('[data-voice-install]')!.click();
+    await vi.waitFor(() =>
+      expect(notice).toHaveBeenLastCalledWith(
+        expect.stringContaining('still downloading'),
+      ),
+    );
+    expect(InstallingRecognition.install).toHaveBeenCalledWith({
+      langs: ['en-US'],
+      processLocally: true,
+    });
+    voice.reset();
+  });
   it('unlocks a released draft immediately while availability is still pending', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     let resolve!: (value: string) => void;

@@ -39,6 +39,13 @@ export interface TranscriptionProvider {
   abort(): void;
 }
 type RecordingMode = 'hold' | 'middle' | 'hands-free';
+function languagePackMessage(language: string, availability: string) {
+  if (availability === 'downloadable')
+    return `The browser's ${language} speech language pack is missing. Open Settings → Voice → Install language pack. A Windows language pack does not install this browser pack.`;
+  if (availability === 'downloading')
+    return `The browser's ${language} speech language pack is still downloading. Wait for it to finish, then try the mic again.`;
+  return `An on-device speech language pack for ${language} is unavailable in this browser. In Settings → Voice, choose a supported language or explicitly allow Browser service.`;
+}
 function browserRecognition(): RecognitionConstructor | undefined {
   const scope = globalThis as typeof globalThis & {
     SpeechRecognition?: RecognitionConstructor;
@@ -88,11 +95,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
         return;
       }
       if (availability !== 'available')
-        throw new Error(
-          'On-device language pack is ' +
-            availability +
-            '. Use Install language pack, or type your feedback.',
-        );
+        throw new Error(languagePackMessage(this.language, availability));
     } else if ('processLocally' in recognition)
       recognition.processLocally = false;
     recognition.onresult = (event) =>
@@ -307,7 +310,11 @@ export function mountVoice(
     if (recording) stop();
     else start('hands-free');
   };
-  window.addEventListener('blur', stop);
+  window.addEventListener('blur', () => {
+    // A browser permission prompt can take focus from a hands-free session.
+    // Hold gestures must still stop when their release might be missed.
+    if (mode !== 'hands-free') stop();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stop();
   });
@@ -318,7 +325,7 @@ export function mountVoice(
     install.hidden = select.value !== 'local';
     settings.querySelector('.voice-disclosure')!.textContent =
       select.value === 'local'
-        ? 'Audio stays on this computer. Requires browser support and a language pack.'
+        ? 'Audio stays on this computer. Install the speech pack here for the exact language below; Windows language packs do not replace the browser pack.'
         : 'Audio may be sent to your browser’s speech provider. Your permission is required below.';
   };
   select.value = options.preferences?.provider || 'local';
@@ -343,21 +350,35 @@ export function mountVoice(
       return;
     }
     installing = true;
+    const installLanguage = language.value.trim() || 'en-US';
     install.disabled = true;
     options.notice(
       'Downloading the on-device language pack through your browser…',
     );
     void Constructor.install({
-      langs: [language.value.trim() || 'en-US'],
+      langs: [installLanguage],
       processLocally: true,
     })
-      .then((ok) =>
+      .then(async (ok) => {
+        if (!ok) {
+          options.notice(
+            `The browser's ${installLanguage} speech language pack could not be installed. Try again or choose Browser service in Voice settings.`,
+          );
+          return;
+        }
+        const availability = await Constructor.available?.({
+          langs: [installLanguage],
+          processLocally: true,
+        });
         options.notice(
-          ok
-            ? 'Language pack installed. Hold to talk when ready.'
-            : 'The language pack could not be installed.',
-        ),
-      )
+          availability === 'available'
+            ? `The browser's ${installLanguage} speech language pack is ready. Try hands-free recording first so you can allow microphone access when prompted.`
+            : languagePackMessage(
+                installLanguage,
+                availability || 'unavailable',
+              ),
+        );
+      })
       .catch((error: unknown) => options.notice(String(error)))
       .finally(() => {
         installing = false;
