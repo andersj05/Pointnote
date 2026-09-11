@@ -379,6 +379,70 @@ textarea:disabled {
   gap: 6px;
   margin-top: 2px;
 }
+.voice-activity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 74px;
+  padding: 14px 18px;
+  margin: 2px 0 10px;
+  border: 1px solid #dbe9e1;
+  border-radius: 16px;
+  background: linear-gradient(115deg, #f1f8f4, #e7f3ec);
+  color: #246547;
+}
+.voice-activity-copy {
+  min-width: 0;
+}
+.voice-activity-label {
+  display: block;
+  color: #628571;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.voice-activity-state {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.voice-wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 42px;
+  flex: 0 0 auto;
+  color: #32835b;
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    black 12%,
+    black 88%,
+    transparent
+  );
+}
+.voice-wave > span {
+  display: block;
+  width: 3px;
+  height: var(--wave-height);
+  border-radius: 8px;
+  background: currentColor;
+  transform: scaleY(0.22);
+  opacity: 0.55;
+}
+[data-voice-phase='listening'] .voice-wave > span {
+  transform: scaleY(0.8);
+  opacity: 1;
+}
+.microphone-setup {
+  margin-top: 10px;
+  width: 100%;
+}
 .voice-hint {
   margin: 8px 2px 0;
   color: var(--muted);
@@ -401,31 +465,33 @@ textarea:disabled {
   width: max-content;
   max-width: calc(100vw - 32px);
   padding: 12px 16px;
-  border: 1px solid #d9a393;
-  border-radius: 10px;
-  background: #fff5ef;
-  color: #873820;
-  box-shadow: 0 6px 24px #35201324;
+  border: 1px solid #ffffff24;
+  border-radius: 22px;
+  background: #153c2d;
+  color: #f3fff7;
+  box-shadow: 0 8px 30px #112c2430;
   pointer-events: none;
 }
-.recording-toast > svg {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
+.recording-toast .voice-wave {
+  color: #a3e9bd;
+  gap: 2px;
+  width: 76px;
+  overflow: hidden;
 }
-.recording-toast strong,
-.recording-toast span span {
+.recording-toast-copy strong,
+.recording-toast-copy > span {
   display: block;
   font-size: 12px;
 }
-.recording-toast span span {
+.recording-toast-copy > span {
   font-size: 11px;
   margin-top: 2px;
+  color: #b0cdbc;
 }
 .recording-toast kbd {
   color: inherit;
   background: transparent;
-  border-color: #d9a393;
+  border-color: #ffffff30;
 }
 .talk,
 .hands-free {
@@ -463,9 +529,9 @@ textarea:disabled {
   padding: 8px;
 }
 .recording {
-  background: #fff0eb !important;
-  color: #a53f25 !important;
-  border-color: #d9a393 !important;
+  background: #e7f3ec !important;
+  color: #246547 !important;
+  border-color: #aacdb8 !important;
 }
 .recording .talk-key {
   visibility: hidden;
@@ -905,6 +971,24 @@ kbd {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
+  [data-voice-phase='listening'] .voice-wave > span {
+    animation: voice-wave var(--wave-duration) ease-in-out var(--wave-delay)
+      infinite alternate;
+  }
+  @keyframes voice-wave {
+    0% {
+      transform: scaleY(0.3);
+      opacity: 0.65;
+    }
+    45% {
+      transform: scaleY(0.95);
+      opacity: 1;
+    }
+    100% {
+      transform: scaleY(0.5);
+      opacity: 0.8;
+    }
+  }
   button {
     transition:
       background-color 0.12s,
@@ -912,6 +996,9 @@ kbd {
   }
 }
 @media (forced-colors: active) {
+  .voice-wave > span {
+    background: CanvasText;
+  }
   .setting-toggle input {
     appearance: auto;
   }

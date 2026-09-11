@@ -5,6 +5,7 @@ import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
 import { mountVoice } from './voice';
+import { voiceWave } from './voice-wave';
 import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
@@ -37,7 +38,7 @@ async function mount() {
   const shell = document.createElement('div');
   shell.innerHTML = `
     <div class="shield" aria-hidden="true"></div><div class="highlights"></div><div class="markers"></div>
-    <div class="recording-toast" aria-hidden="true" hidden>${icon('mic')}<span><strong>Recording your note</strong><span>Release middle mouse to finish</span></span><kbd>Esc to stop</kbd></div>
+    <div class="recording-toast" aria-hidden="true" hidden>${voiceWave()}<span class="recording-toast-copy"><strong>Opening microphone…</strong><span>Release middle mouse to finish</span></span><kbd>Esc to stop</kbd></div>
     <aside class="panel" aria-label="Pointnote review">
       <header class="top">
         <button class="drag-handle" data-panel-handle="move" aria-label="Move panel" title="Drag to move · arrow keys to nudge"><span class="logo" aria-hidden="true">${icon('note')}</span><span class="brand">pointnote</span><span class="drag-dots">${icon('grip')}</span></button>
@@ -167,6 +168,13 @@ async function mount() {
   };
   function updateControls() {
     $('.recording-toast').hidden = !voice.middleRecording || !selectionActive();
+    $('.recording-toast').dataset.voicePhase = voice.phase;
+    $('.recording-toast strong').textContent =
+      voice.phase === 'listening'
+        ? 'Listening to your note'
+        : voice.phase === 'finishing'
+          ? 'Finishing your transcript…'
+          : 'Opening microphone…';
     const voiceHint = $('.voice-hint');
     voiceHint.textContent = !selected.length
       ? 'Select a target, then hold middle mouse to talk.'

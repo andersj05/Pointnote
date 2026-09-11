@@ -1,5 +1,6 @@
 import { icon } from './icons';
 import type { Preferences } from './preferences';
+import { voiceWave } from './voice-wave';
 
 export interface SpeechResult {
   isFinal: boolean;
@@ -233,6 +234,11 @@ export function mountVoice(
 ) {
   container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
+  const activity = document.createElement('div');
+  activity.className = 'voice-activity';
+  activity.hidden = true;
+  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state"></strong></div>${voiceWave()}`;
+  container.prepend(activity);
   const enableMicrophone = document.createElement('button');
   enableMicrophone.type = 'button';
   enableMicrophone.className = 'secondary microphone-setup';
@@ -271,6 +277,13 @@ export function mountVoice(
   const setPhase = (value: VoicePhase) => {
     phase = value;
     container.dataset.voicePhase = value;
+    activity.hidden = value === 'idle';
+    activity.querySelector('.voice-activity-state')!.textContent =
+      value === 'starting'
+        ? 'Opening microphone…'
+        : value === 'finishing'
+          ? 'Finishing transcript…'
+          : 'Listening';
     options.onState();
   };
   const finish = () => {
