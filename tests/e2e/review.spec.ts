@@ -311,6 +311,33 @@ test('moving the viewport clears an area reference but preserves its draft', asy
   await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
 });
 
+test('handoff instruction drafts stay isolated between pages and sessions', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await save(page, 'Review this report.', 1);
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page
+    .getByRole('textbox', { name: 'Instructions for this handoff' })
+    .fill('REPORT ONLY: keep the original data.');
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page
+    .getByRole('button', { name: 'Review sessions', exact: true })
+    .click();
+  await page
+    .getByRole('textbox', { name: 'New session name' })
+    .fill('Separate review');
+  await page
+    .getByRole('button', { name: 'Start session', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await expect(
+    page.getByRole('textbox', { name: 'Instructions for this handoff' }),
+  ).toHaveValue('');
+});
+
 test('backup preview restores deleted notes and preserves existing versions', async ({}, info) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');
@@ -336,19 +363,19 @@ test('backup preview restores deleted notes and preserves existing versions', as
   await page.getByLabel('Choose a Pointnote backup').setInputFiles(file);
   await expect(
     page.getByText(
-      '1 notes · 0 sessions. 1 new notes; existing notes will be kept.',
+      '1 note · 0 sessions. 1 new note; existing notes will be kept.',
     ),
   ).toBeVisible();
   await expect(page.locator('.card')).toHaveCount(0);
   await page
     .getByRole('button', { name: 'Restore backup', exact: true })
     .click();
-  await expect(page.getByRole('status')).toContainText('Restored 1 notes');
+  await expect(page.getByRole('status')).toContainText('Restored 1 note');
   await page.getByLabel('Choose a Pointnote backup').setInputFiles(file);
   await page
     .getByRole('button', { name: 'Restore backup', exact: true })
     .click();
-  await expect(page.getByRole('status')).toContainText('Kept 1 existing notes');
+  await expect(page.getByRole('status')).toContainText('Kept 1 existing note');
   await page.getByRole('button', { name: 'Back to page notes' }).click();
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.comment')).toHaveText(
@@ -378,10 +405,10 @@ test('review sessions collect pages explicitly and survive navigation', async ({
     '0 notes across 0 pages',
   );
   await page
-    .getByRole('button', { name: 'Add 1 existing page notes to this session' })
+    .getByRole('button', { name: 'Add 1 existing page note to this session' })
     .click();
   await expect(page.locator('.review-summary')).toHaveText(
-    '1 notes across 1 pages',
+    '1 note across 1 page',
   );
   await page.getByRole('button', { name: 'Back to page notes' }).click();
   await page.goto('http://127.0.0.1:4173/frontend.html');
@@ -1550,7 +1577,7 @@ test('export offers clipboard, standalone Markdown and ZIP, including the unsave
   await exportButton.click();
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.handoff-count')).toHaveText(
-    '1 change selected · 1 pages',
+    '1 change selected · 1 page',
   );
   await expect(
     page.getByRole('heading', { name: 'Prepare handoff' }),

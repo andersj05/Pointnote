@@ -191,6 +191,15 @@ async function mount() {
     },
   );
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.activeReviewSessionId) {
+      void reviews
+        ?.refreshSummary()
+        .catch(() =>
+          setNotice(
+            'Could not refresh the active session. Reopen Review sessions to retry.',
+          ),
+        );
+    }
     if (area !== 'local' || !changes.preferences) return;
     void readPreferences().then(({ preferences: value }) => {
       Object.assign(preferences, value);
@@ -1011,7 +1020,11 @@ async function mount() {
         return;
       }
       if (event.composedPath().includes(panel)) return;
-      if (selectionActive() && ['Enter', ' '].includes(event.key)) {
+      if (
+        selectionActive() &&
+        selectionMode !== 'page' &&
+        ['Enter', ' '].includes(event.key)
+      ) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }

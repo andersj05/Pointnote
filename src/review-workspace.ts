@@ -13,6 +13,8 @@ import type {
 } from './types';
 
 type View = 'sessions' | 'handoff' | 'check';
+const plural = (count: number, noun: string) =>
+  `${count} ${noun}${count === 1 ? '' : 's'}`;
 interface Options {
   pageKey: () => string;
   onView: (open: boolean) => void;
@@ -75,8 +77,9 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
   let focusReturn: HTMLElement | null = null;
   let checkNotes: Annotation[] = [];
   let handoffNotes: Annotation[] = [];
-  let instructionDraft = '';
-  let summaryRevision = 0;
+  const handoffDrafts = new Map<string, string>();
+  let handoffScope = '';
+  let summaryQueue: Promise<void> = Promise.resolve();
 
   const currentSession = () =>
     library.sessions.find((s) => s.id === activeSessionId);
@@ -138,26 +141,28 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
         }
       });
   }
-  async function refreshSummary() {
-    const revision = ++summaryRevision;
-    const [next, stored] = await Promise.all([
-      rpc<ReviewLibrary>({ type: 'LIBRARY' }),
-      chrome.storage.local.get('activeReviewSessionId'),
-    ]);
-    if (revision !== summaryRevision) return;
-    library = next;
-    activeSessionId = library.sessions.some(
-      (s) => s.id === stored.activeReviewSessionId,
-    )
-      ? (stored.activeReviewSessionId as string)
-      : undefined;
-    const label = root.querySelector<HTMLElement>('.session-label');
-    if (label) {
-      const notes = scopedNotes();
-      label.textContent = `${currentSession()?.name || 'This page'} · ${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`;
-      label.title = label.textContent;
-    }
-    options.onSummary();
+  function refreshSummary() {
+    const refresh = async () => {
+      const [next, stored] = await Promise.all([
+        rpc<ReviewLibrary>({ type: 'LIBRARY' }),
+        chrome.storage.local.get('activeReviewSessionId'),
+      ]);
+      library = next;
+      activeSessionId = library.sessions.some(
+        (s) => s.id === stored.activeReviewSessionId,
+      )
+        ? (stored.activeReviewSessionId as string)
+        : undefined;
+      const label = root.querySelector<HTMLElement>('.session-label');
+      if (label) {
+        const notes = scopedNotes();
+        label.textContent = `${currentSession()?.name || 'This page'} · ${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`;
+        label.title = label.textContent;
+      }
+      options.onSummary();
+    };
+    summaryQueue = summaryQueue.then(refresh, refresh);
+    return summaryQueue;
   }
   async function open(next: View) {
     await refreshSummary();
@@ -170,9 +175,13 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       selectedIds = new Set(
         handoffNotes.filter(isReadyForHandoff).map((note) => note.id),
       );
+      handoffScope = activeSessionId || options.pageKey();
       handoff = {
         name: currentSession()?.name || 'Page review',
-        instructions: currentSession()?.instructions || instructionDraft,
+        instructions:
+          handoffDrafts.get(handoffScope) ??
+          currentSession()?.instructions ??
+          '',
       };
       renderHandoff();
     } else if (next === 'check') {
@@ -259,7 +268,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       body.append(
         element(
           'p',
-          `${notes.length} notes across ${pages.size} pages`,
+          `${plural(notes.length, 'note')} across ${plural(pages.size, 'page')}`,
           'review-summary',
         ),
       );
@@ -276,7 +285,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       );
       if (unassigned.length)
         button(
-          `Add ${unassigned.length} existing page notes to this session`,
+          `Add ${plural(unassigned.length, 'existing page note')} to this session`,
           async () => {
             for (const note of unassigned)
               await rpc({
@@ -373,7 +382,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
         preview.append(
           element(
             'p',
-            `${imported.annotations.length} notes · ${imported.sessions.length} sessions. ${count} new notes; existing notes will be kept.`,
+            `${plural(imported.annotations.length, 'note')} · ${plural(imported.sessions.length, 'session')}. ${plural(count, 'new note')}; existing notes will be kept.`,
             'review-description',
           ),
         );
@@ -388,7 +397,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
             await refreshSummary();
             renderSessions();
             options.notice(
-              `Restored ${result.added} notes. Kept ${result.skipped} existing notes.`,
+              `Restored ${plural(result.added, 'note')}. Kept ${plural(result.skipped, 'existing note')}.`,
               true,
             );
           },
@@ -405,7 +414,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
     const selected = handoffNotes.filter((note) => selectedIds.has(note.id));
     const count = section.querySelector('.handoff-count');
     if (count)
-      count.textContent = `${selected.length} ${selected.length === 1 ? 'change' : 'changes'} selected · ${new Set(selected.map((note) => note.page.key)).size} pages`;
+      count.textContent = `${plural(selected.length, 'change')} selected · ${plural(new Set(selected.map((note) => note.page.key)).size, 'page')}`;
     for (const control of actions.querySelectorAll<HTMLButtonElement>('button'))
       control.disabled = locked || !selected.length;
   }
@@ -429,7 +438,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       'For example: Fix these items and preserve the existing colors.';
     instructions.oninput = () => {
       handoff.instructions = instructions.value;
-      instructionDraft = instructions.value;
+      handoffDrafts.set(handoffScope, instructions.value);
     };
     const choices = element('div', undefined, 'review-inline-actions');
     button(
@@ -612,7 +621,8 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       .filter(Boolean)
       .join('\n');
     if (quote) body.append(element('p', quote, 'review-quote'));
-    if (note.page.key === options.pageKey()) {
+    const onCurrentPage = note.page.key === options.pageKey();
+    if (onCurrentPage) {
       button('Locate current target', () => options.locate(note), body);
       if (note.status === 'needs-reattachment')
         body.append(
@@ -639,6 +649,14 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
         ),
       );
       body.append(element('p', note.page.url, 'review-quote'));
+      if (
+        /^https?:\/\//.test(note.page.url) &&
+        !/redacted/i.test(note.page.url)
+      ) {
+        const link = element('a', 'Open this page', 'review-page-link');
+        link.href = note.page.url;
+        body.append(link);
+      }
     }
     const followUp = textField(
       'Follow-up for another pass',
@@ -663,8 +681,10 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       checkIndex++;
       renderCheck();
     };
-    button('Looks right', () => decide('accepted'), actions, 'primary');
-    button('Needs another pass', () => decide('needs-another-pass'));
+    if (onCurrentPage) {
+      button('Looks right', () => decide('accepted'), actions, 'primary');
+      button('Needs another pass', () => decide('needs-another-pass'));
+    }
     button('Skip for now', () => {
       checkIndex++;
       renderCheck();
