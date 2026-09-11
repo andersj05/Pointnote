@@ -10,7 +10,12 @@ import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
 import { mountPanel } from './panel';
-import { readPreferences } from './preferences';
+import { readPreferences, type Preferences } from './preferences';
+import {
+  defaultShortcut,
+  shortcutLabel,
+  mountShortcutSettings,
+} from './shortcut-config';
 import type { Annotation, PageContext, Target, Bounds } from './types';
 
 const guard = globalThis as typeof globalThis & { __pointnote?: boolean };
@@ -28,7 +33,7 @@ async function mount() {
     },
     layout: undefined,
   }));
-  const preferences = configuration.preferences;
+  const preferences: Preferences = configuration.preferences;
   const host = document.createElement('div');
   host.dataset.pointnoteRoot = '';
   const root = host.attachShadow({ mode: 'open' });
@@ -66,9 +71,9 @@ async function mount() {
         <div class="settings-heading"><button class="icon" data-action="back" aria-label="Back to notes" title="Back to notes">${icon('back')}</button><h1 tabindex="-1">Settings</h1></div>
         <div class="settings-body">
           <section class="settings-section"><h2>Capture</h2><label class="setting-toggle"><span>Include screenshots<span class="setting-description">Form fields and private areas are masked.</span></span><input type="checkbox" class="include-screenshot" role="switch"></label></section>
-          <section class="settings-section"><h2>Voice</h2><div class="voice-preferences"></div></section>
+          <section class="settings-section"><h2>Voice</h2><div class="voice-preferences"></div><div class="voice-shortcut-settings"></div></section>
           <section class="settings-section"><h2>Workspace</h2><div class="setting-row"><span>Panel position &amp; size</span><button class="secondary" data-action="reset-layout">Reset layout</button></div><p class="setting-description">Drag the title bar to move. Drag either bottom corner to resize.</p></section>
-          <section class="settings-section shortcuts"><h2>Shortcuts</h2><div><span>Hold to talk, selection on</span><kbd>Middle mouse</kbd></div><div><span>Save note</span><kbd>Ctrl / ⌘ + Enter</kbd></div><div><span>Hold to talk, when focused</span><kbd>Space</kbd></div><div><span>Cancel selection / go back</span><kbd>Esc</kbd></div><div><span>Move or resize, when focused</span><kbd>Arrow keys</kbd></div></section>
+          <section class="settings-section shortcuts"><h2>Shortcuts</h2><div><span>Hold to talk, selection on</span><kbd data-active-voice-shortcut>Middle mouse</kbd></div><div><span>Save note</span><kbd>Ctrl / ⌘ + Enter</kbd></div><div><span>Hold to talk, when focused</span><kbd>Space</kbd></div><div><span>Cancel selection / go back</span><kbd>Esc</kbd></div><div><span>Move or resize, when focused</span><kbd>Arrow keys</kbd></div></section>
           <p class="local-note"><span class="dot"></span>Notes stay in this browser. No audio is stored.</p>
         </div>
       </section>
@@ -130,6 +135,7 @@ async function mount() {
     persistPreferences();
   };
   const voice = mountVoice($('.voice-slot'), {
+    shortcutLabel: () => shortcutLabel(preferences.voiceShortcut),
     settings: $('.voice-preferences'),
     preferences,
     onPreferences: (value) => {
@@ -157,15 +163,26 @@ async function mount() {
     notice: setNotice,
   });
   mountVoiceShortcut({
+    binding: () => preferences.voiceShortcut || defaultShortcut,
     enabled: () => selectionActive() && !busy && !reattaching,
     start: () => voice.start('middle'),
     release: () => voice.release('middle'),
   });
+  const refreshShortcutSettings = mountShortcutSettings(
+    $('.voice-shortcut-settings'),
+    () => preferences.voiceShortcut || defaultShortcut,
+    (value) => {
+      preferences.voiceShortcut = value;
+      persistPreferences();
+      updateControls();
+    },
+  );
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !changes.preferences) return;
     void readPreferences().then(({ preferences: value }) => {
       Object.assign(preferences, value);
       voice.refreshPreferences(preferences);
+      refreshShortcutSettings();
       updateControls();
     });
   });
@@ -175,6 +192,12 @@ async function mount() {
     );
   };
   function updateControls() {
+    const holdKey = shortcutLabel(preferences.voiceShortcut);
+    $('[data-active-voice-shortcut]').textContent = holdKey;
+    $('.recording-toast-copy > span').textContent =
+      `Release ${holdKey} to finish`;
+    $('[data-voice-talk]').title =
+      `Hold ${holdKey} outside text fields, hold this button, or hold Space while focused`;
     $('.recording-toast').hidden = !voice.middleRecording || !selectionActive();
     $('.recording-toast').dataset.voicePhase = voice.phase;
     $('.recording-toast strong').textContent =
@@ -185,10 +208,10 @@ async function mount() {
           : 'Opening microphone…';
     const voiceHint = $('.voice-hint');
     voiceHint.textContent = !selected.length
-      ? 'Select a target, then hold middle mouse to talk.'
+      ? `Select a target, then hold ${holdKey} to talk.`
       : !reviewing
-        ? 'Resume selection to use the middle mouse shortcut.'
-        : 'Hold middle mouse anywhere to talk about this selection.';
+        ? 'Resume selection to use your voice shortcut.'
+        : `Hold ${holdKey} to talk about this selection.`;
     voiceHint.classList.toggle('ready', Boolean(selected.length && reviewing));
     $<HTMLButtonElement>('[data-action=save]').disabled =
       busy ||
@@ -606,7 +629,10 @@ async function mount() {
     hovered = null;
     setNotice('');
     renderSelection();
-    feedback.focus();
+    if (preferences.voiceShortcut?.kind === 'key') {
+      panel.tabIndex = -1;
+      panel.focus({ preventScroll: true });
+    } else feedback.focus();
   });
   // The shield prevents hit-testing the real controls. Capture listeners also stop
   // bubbling handlers on the host page while selection mode is active.
@@ -649,7 +675,10 @@ async function mount() {
               selectedId = reattaching;
               renderSelection();
               setNotice('Text selected. Add your feedback.');
-              feedback.focus();
+              if (preferences.voiceShortcut?.kind === 'key') {
+                panel.tabIndex = -1;
+                panel.focus({ preventScroll: true });
+              } else feedback.focus();
             }, 0);
           return;
         }

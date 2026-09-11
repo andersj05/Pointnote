@@ -46,7 +46,7 @@ export function mountVoice(
   enableMicrophone.hidden = true;
   container.append(enableMicrophone);
   if (!options.settings) container.append(settings);
-  settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
+  settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><div class="setting-row"><span data-mic-status>Microphone setup</span><button class="secondary" type="button" data-mic-manage>Manage microphone</button></div><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
   const talk = container.querySelector<HTMLButtonElement>('[data-voice-talk]')!;
   const toggle = container.querySelector<HTMLButtonElement>(
     '[data-voice-toggle]',
@@ -181,7 +181,7 @@ export function mountVoice(
             mode === 'hands-free'
               ? 'Listening…'
               : mode === 'middle'
-                ? 'Release middle button'
+                ? `Release ${options.shortcutLabel?.() || 'middle button'}`
                 : 'Release to finish';
           talk.setAttribute('aria-label', talkLabel.textContent);
           setPhase('listening');
@@ -272,7 +272,7 @@ export function mountVoice(
     settings.querySelector('.voice-disclosure')!.textContent =
       select.value === 'local'
         ? 'Audio stays on this computer. Install the speech pack here for the exact language below; Windows language packs do not replace the browser pack.'
-        : 'Audio may be sent to your browser’s speech provider. Your permission is required below.';
+        : 'Audio may be sent to your browser’s speech provider. Your choice below is remembered. Uncheck it to revoke consent.';
   };
   select.value = options.preferences?.provider || 'local';
   language.value = options.preferences?.language || 'en-US';
@@ -293,6 +293,10 @@ export function mountVoice(
   install.onclick = () => {
     void openVoiceSetup().catch((error) => options.notice(String(error)));
   };
+  settings.querySelector<HTMLButtonElement>('[data-mic-manage]')!.onclick =
+    () => {
+      void openVoiceSetup().catch((error) => options.notice(String(error)));
+    };
   const onboarding = document.createElement('section');
   onboarding.className = 'voice-onboarding';
   onboarding.innerHTML =
@@ -300,6 +304,9 @@ export function mountVoice(
   container.prepend(onboarding);
   const refreshPreferences = (value: Preferences) => {
     options.preferences = value;
+    settings.querySelector('[data-mic-status]')!.textContent = value.voiceReady
+      ? 'Ready across pages'
+      : 'Set up once';
     onboarding.hidden = Boolean(
       value.voiceReady || value.voiceOnboardingSeen || options.createProvider,
     );

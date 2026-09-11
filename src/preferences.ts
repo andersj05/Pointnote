@@ -1,3 +1,8 @@
+import {
+  defaultShortcut,
+  validShortcut,
+  type VoiceShortcut,
+} from './shortcut-config';
 export interface PanelBounds {
   x: number;
   y: number;
@@ -11,6 +16,7 @@ export interface Preferences {
   voiceReady?: boolean;
   voiceOnboardingSeen?: boolean;
   browserConsent?: boolean;
+  voiceShortcut?: VoiceShortcut;
 }
 const defaults: Preferences = {
   screenshot: true,
@@ -29,6 +35,9 @@ export async function readPreferences(): Promise<{
       voiceReady: value?.voiceReady === true,
       voiceOnboardingSeen: value?.voiceOnboardingSeen === true,
       browserConsent: value?.browserConsent === true,
+      voiceShortcut: validShortcut(value?.voiceShortcut)
+        ? value.voiceShortcut
+        : defaultShortcut,
       screenshot:
         typeof value?.screenshot === 'boolean'
           ? value.screenshot
