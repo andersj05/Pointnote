@@ -48,12 +48,10 @@ describe('voice background compatibility', () => {
   it('preserves actionable errors from a current worker', async () => {
     vi.stubGlobal('chrome', {
       runtime: {
-        sendMessage: vi
-          .fn()
-          .mockResolvedValue({
-            ok: false,
-            error: 'Could not create the setup tab.',
-          }),
+        sendMessage: vi.fn().mockResolvedValue({
+          ok: false,
+          error: 'Could not create the setup tab.',
+        }),
       },
     });
     await expect(openVoiceSetup()).rejects.toThrow(

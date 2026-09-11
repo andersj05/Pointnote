@@ -28,7 +28,7 @@ async function requestVoice(action: 'setup' | 'prepare') {
         message,
       )
     )
-      throw new Error(reloadMessage);
+      throw new Error(reloadMessage, { cause: error });
     throw error;
   }
 }

@@ -683,6 +683,56 @@ for (const gesture of ['button', 'middle'] as const) {
   });
 }
 
+test('voice setup explains recovery when an older background rejects the request', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const cdp = await context.newCDPSession(page);
+  const worlds: { id: number; origin: string }[] = [];
+  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+    worlds.push(world),
+  );
+  await cdp.send('Runtime.enable');
+  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
+  // Reproduce the reply from a pre-voice worker left running after a rebuild.
+  await cdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression: `
+      globalThis.originalVoiceSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = (message, ...args) =>
+        message?.target === 'pointnote-voice'
+          ? Promise.resolve({ ok: false, error: 'Unknown request.' })
+          : originalVoiceSendMessage(message, ...args);
+    `,
+  });
+  await page.getByRole('button', { name: 'Set up voice', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'click Reload on Pointnote',
+  );
+  await expect(page.getByRole('status')).toContainText('refresh this page');
+  await expect(page.getByRole('status')).not.toContainText('Unknown request');
+  expect(
+    context.pages().some((p) => p.url().endsWith('/voice-setup.html')),
+  ).toBe(false);
+  await expect(page.locator('.voice-onboarding')).toBeVisible();
+  await expect(page.locator('.voice-activity')).toBeHidden();
+
+  // A successful retry must still open setup; failure must not mark it complete.
+  await cdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression: 'chrome.runtime.sendMessage = originalVoiceSendMessage;',
+  });
+  const newPage = context.waitForEvent('page');
+  await page.getByRole('button', { name: 'Set up voice', exact: true }).click();
+  const setup = await newPage;
+  await setup.waitForLoadState();
+  expect(setup.url()).toContain('/voice-setup.html');
+  await expect(
+    setup.getByRole('button', { name: 'Enable microphone', exact: true }),
+  ).toBeVisible();
+  await cdp.detach();
+});
+
 test('voice onboarding saves extension permission and stays complete across page origins', async () => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');
