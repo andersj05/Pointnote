@@ -92,7 +92,7 @@ async function mount() {
     reviewing = true,
     busy = false;
   let transitioning = false;
-  let reviews: ReturnType<typeof mountReviewWorkspace> | undefined;
+  let reviews: ReturnType<typeof mountReviewWorkspace> | undefined = undefined;
   let reviewOpen = false;
   let clearPageKey: string | undefined;
   let settingsOpen = false,

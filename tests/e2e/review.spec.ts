@@ -235,6 +235,51 @@ test('handoff selects open Now notes and preserves exact instructions', async ({
   ).toBeEnabled();
 });
 
+test('backup preview restores deleted notes and preserves existing versions', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await save(page, 'Back up these exact words.', 1);
+  await page
+    .getByRole('button', { name: 'Review sessions', exact: true })
+    .click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download backup' }).click();
+  const file = info.outputPath('backup.json');
+  await (await download).saveAs(file);
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page
+    .getByRole('button', { name: 'Clear all notes for this page' })
+    .click();
+  await page.getByRole('button', { name: 'Delete notes', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Review sessions', exact: true })
+    .click();
+  await page.getByLabel('Choose a Pointnote backup').setInputFiles(file);
+  await expect(
+    page.getByText(
+      '1 notes · 0 sessions. 1 new notes; existing notes will be kept.',
+    ),
+  ).toBeVisible();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Restore backup', exact: true })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Restored 1 notes');
+  await page.getByLabel('Choose a Pointnote backup').setInputFiles(file);
+  await page
+    .getByRole('button', { name: 'Restore backup', exact: true })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Kept 1 existing notes');
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.comment')).toHaveText(
+    'Back up these exact words.',
+  );
+});
+
 test('review sessions collect pages explicitly and survive navigation', async ({}, info) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');

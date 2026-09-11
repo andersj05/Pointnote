@@ -7,7 +7,9 @@ import {
   putSession,
   patchReview,
   patchAttachment,
+  restoreLibrary,
 } from './storage';
+import { BACKUP_LIMIT, validateLibrary } from './backup';
 import type { Request, Response } from './types';
 import { mountVoiceBackground } from './voice-background';
 mountVoiceBackground();
@@ -71,6 +73,10 @@ chrome.runtime.onMessage.addListener(
           return listAnnotations(message.pageKey);
         case 'LIBRARY':
           return readLibrary();
+        case 'RESTORE':
+          if (JSON.stringify(message.library).length > BACKUP_LIMIT)
+            throw new Error('Backup is too large.');
+          return restoreLibrary(validateLibrary(message.library));
         case 'PUT_SESSION':
           await putSession(message.session);
           return null;
@@ -146,7 +152,8 @@ chrome.runtime.onMessage.addListener(
       message.type === 'DELETE_PAGE' ||
       message.type === 'PUT_SESSION' ||
       message.type === 'PATCH_REVIEW' ||
-      message.type === 'PATCH_ATTACHMENT'
+      message.type === 'PATCH_ATTACHMENT' ||
+      message.type === 'RESTORE'
         ? (writeQueue = writeQueue.then(handle, handle))
         : message.type === 'CAPTURE'
           ? (captureQueue = captureQueue.then(handle, handle))

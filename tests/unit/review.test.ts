@@ -9,7 +9,9 @@ import {
   patchAttachment,
   readLibrary,
   deleteAnnotation,
+  restoreLibrary,
 } from '../../src/storage';
+import { createBackup, parseBackup } from '../../src/backup';
 import { createMarkdown, createBundle } from '../../src/export';
 import { strFromU8, unzipSync } from 'fflate';
 
@@ -20,7 +22,7 @@ function note(): Annotation {
     createdAt: '2026-09-11T12:00:00.000Z',
     updatedAt: '2026-09-11T12:00:00.000Z',
     page: {
-      key: crypto.randomUUID(),
+      key: crypto.randomUUID().replaceAll('-', '').repeat(2),
       url: 'https://example.test/review',
       title: 'Review',
       viewport: {
@@ -32,7 +34,24 @@ function note(): Annotation {
       },
     },
     selectionKind: 'element',
-    targets: [],
+    targets: [
+      {
+        locator: {
+          tag: 'p',
+          id: 'target',
+          attributes: {},
+          role: null,
+          accessibleName: null,
+          cssSelector: '#target',
+          nearbyHeading: 'Review',
+          text: 'Review target',
+        },
+        htmlExcerpt: '<p id="target">Review target</p>',
+        htmlTruncated: false,
+        textTruncated: false,
+        bounds: { x: 10, y: 10, width: 100, height: 40 },
+      },
+    ],
     screenshot: { status: 'unavailable', reason: 'Disabled.' },
     status: 'open',
     resolution: 'open',
@@ -47,6 +66,63 @@ function note(): Annotation {
 }
 
 describe('review decisions and handoffs', () => {
+  it('round-trips backups, strips unknown fields and rejects remote images and future formats', () => {
+    const original = note();
+    original.screenshot = {
+      status: 'available',
+      path: `screenshots/${original.id}.png`,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      capturedAt: original.createdAt,
+      width: 10,
+      height: 10,
+      redactedRegions: 1,
+      note: 'Masked.',
+    };
+    const raw = createBackup({ annotations: [original], sessions: [] });
+    expect(parseBackup(raw).annotations[0]).toEqual(original);
+    const edited = JSON.parse(raw);
+    edited.annotations[0].secretExtra = 'Never restore this field';
+    edited.annotations[0].targets[0].htmlExcerpt =
+      '<input value="FORM-SECRET"><script>alert(1)</script>';
+    const restored = parseBackup(JSON.stringify(edited));
+    expect(restored.annotations[0]).not.toHaveProperty('secretExtra');
+    expect(restored.annotations[0].targets[0].htmlExcerpt).not.toContain(
+      'FORM-SECRET',
+    );
+    expect(restored.annotations[0].targets[0].htmlExcerpt).not.toContain(
+      'script',
+    );
+    edited.annotations[0].screenshot.dataUrl =
+      'https://example.test/tracker.png';
+    expect(() => parseBackup(JSON.stringify(edited))).toThrow(
+      'supported Pointnote backup',
+    );
+    expect(() =>
+      parseBackup(
+        raw.replace('"schemaVersion":"1.0.0"', '"schemaVersion":"99.0.0"'),
+      ),
+    ).toThrow('supported Pointnote backup');
+  });
+
+  it('restores missing records while retaining newer local words and review decisions', async () => {
+    const original = note(),
+      missing = note();
+    await putAnnotation(original);
+    await patchReview(original.id, { priority: 'later' });
+    const result = await restoreLibrary(
+      parseBackup(
+        createBackup({ annotations: [original, missing], sessions: [] }),
+      ),
+    );
+    expect(result).toEqual({ added: 1, skipped: 1 });
+    const library = await readLibrary();
+    expect(
+      library.annotations.find((n) => n.id === original.id)?.priority,
+    ).toBe('later');
+    expect(
+      library.annotations.find((n) => n.id === missing.id)?.originalComment,
+    ).toBe(missing.originalComment);
+  });
   it('defaults legacy notes to Now and keeps acceptance separate from attachment', () => {
     const original = note();
     expect(isReadyForHandoff(original)).toBe(true);

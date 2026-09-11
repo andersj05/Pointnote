@@ -3,6 +3,7 @@ import { copyText } from './clipboard';
 import { createBundle, createMarkdown } from './export';
 import { isReadyForHandoff } from './review';
 import { pageContext } from './context';
+import { BACKUP_LIMIT, createBackup, parseBackup } from './backup';
 import type {
   Annotation,
   HandoffContext,
@@ -313,6 +314,80 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       actions,
       'primary',
     );
+    const backups = element('section', undefined, 'backup-tools');
+    backups.append(element('h2', 'Backup & restore'));
+    backups.append(
+      element(
+        'p',
+        'Back up all sessions, notes, and screenshots in this browser. Restore adds missing notes and keeps existing versions.',
+        'review-description',
+      ),
+    );
+    button(
+      'Download backup',
+      async () => {
+        const current = await rpc<ReviewLibrary>({ type: 'LIBRARY' });
+        downloadFile(
+          createBackup(current),
+          `pointnote-backup-${new Date().toISOString().slice(0, 10)}.json`,
+          'application/json',
+          panel,
+        );
+        options.notice(
+          'Backup ready. Keep it to restore your notes later.',
+          true,
+        );
+      },
+      backups,
+    );
+    const label = element('label', undefined, 'review-field');
+    label.append(element('span', 'Choose a Pointnote backup'));
+    const file = element('input');
+    file.type = 'file';
+    file.accept = '.json,application/json';
+    file.setAttribute('aria-label', 'Choose a Pointnote backup');
+    const preview = element('div');
+    file.onchange = () =>
+      run(async () => {
+        preview.replaceChildren();
+        const selected = file.files?.[0];
+        if (!selected) return;
+        if (selected.size > BACKUP_LIMIT)
+          throw new Error('Backups must be smaller than 64 MB.');
+        const imported = parseBackup(await selected.text());
+        const existing = new Set(library.annotations.map((note) => note.id));
+        const count = imported.annotations.filter(
+          (note) => !existing.has(note.id),
+        ).length;
+        preview.append(
+          element(
+            'p',
+            `${imported.annotations.length} notes · ${imported.sessions.length} sessions. ${count} new notes; existing notes will be kept.`,
+            'review-description',
+          ),
+        );
+        button(
+          'Restore backup',
+          async () => {
+            const result = await rpc<{ added: number; skipped: number }>({
+              type: 'RESTORE',
+              library: imported,
+            });
+            await options.reload();
+            await refreshSummary();
+            renderSessions();
+            options.notice(
+              `Restored ${result.added} notes. Kept ${result.skipped} existing notes.`,
+              true,
+            );
+          },
+          preview,
+          'primary',
+        );
+      });
+    label.append(file);
+    backups.append(label, preview);
+    body.append(backups);
   }
 
   function updateHandoffCount() {

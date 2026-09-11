@@ -1267,6 +1267,14 @@ kbd {
   font-size: 12px;
   min-width: 0;
 }
+.backup-tools {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.review-field input[type='file'] {
+  font-size: 10px;
+}
 .review-field textarea {
   min-height: 65px;
   font-weight: 400;
