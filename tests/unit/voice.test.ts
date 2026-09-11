@@ -22,6 +22,31 @@ class FakeRecognition implements Recognizer {
   }
 }
 describe('replaceable speech provider', () => {
+  it('only releases the active recording gesture and preserves hands-free sessions', async () => {
+    Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
+    const voice = mountVoice(document.createElement('div'), {
+      getDraft: () => '',
+      setDraft: () => {},
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    voice.start('middle');
+    await Promise.resolve();
+    await Promise.resolve();
+    voice.release('hold');
+    expect(voice.middleRecording).toBe(true);
+    voice.release('middle');
+    expect(voice.recording).toBe(false);
+    voice.start('hands-free');
+    await Promise.resolve();
+    await Promise.resolve();
+    voice.start('middle');
+    voice.release('middle');
+    expect(voice.recording).toBe(true);
+    expect(voice.middleRecording).toBe(false);
+    voice.reset();
+  });
   it('enforces local processing and returns an editable transcript', async () => {
     const provider = new BrowserSpeechProvider(
       true,

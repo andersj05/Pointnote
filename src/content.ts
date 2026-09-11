@@ -5,6 +5,7 @@ import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
 import { mountVoice } from './voice';
+import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
 import { mountPanel } from './panel';
@@ -142,6 +143,7 @@ async function mount() {
       if (!selected.length)
         setNotice('Select a target before recording feedback.');
       return (
+        opened &&
         !busy &&
         !reattaching &&
         !settingsOpen &&
@@ -151,6 +153,11 @@ async function mount() {
     },
     onState: updateControls,
     notice: setNotice,
+  });
+  mountVoiceShortcut({
+    enabled: () => selectionActive() && !busy && !reattaching,
+    start: () => voice.start('middle'),
+    release: () => voice.release('middle'),
   });
   const act = (action: () => Promise<void>) => {
     void action().catch((error: unknown) =>
