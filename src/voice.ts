@@ -146,7 +146,7 @@ export function mountVoice(
     onPreferences?: (value: Pick<Preferences, 'provider' | 'language'>) => void;
   },
 ) {
-  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold the button or hold Space while focused">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div>`;
+  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
   if (!options.settings) container.append(settings);
   settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
@@ -179,6 +179,7 @@ export function mountVoice(
     talk.classList.remove('recording');
     talkLabel.textContent = 'Hold to talk';
     talk.setAttribute('aria-label', 'Hold to talk');
+    talk.setAttribute('aria-pressed', 'false');
     toggle.classList.remove('recording');
     toggle.innerHTML = icon('record');
     toggle.setAttribute('aria-label', 'Start hands-free recording');
@@ -215,6 +216,8 @@ export function mountVoice(
         : mode === 'middle'
           ? 'Release middle button'
           : 'Release to finish';
+    talk.setAttribute('aria-label', talkLabel.textContent);
+    talk.setAttribute('aria-pressed', 'true');
     toggle.classList.add('recording');
     toggle.innerHTML = icon('stop');
     toggle.setAttribute('aria-label', 'Stop recording');
