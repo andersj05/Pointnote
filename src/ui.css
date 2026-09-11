@@ -383,24 +383,26 @@ textarea:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-height: 74px;
-  padding: 14px 18px;
+  gap: 10px;
+  min-height: 88px;
+  padding: 16px;
   margin: 2px 0 10px;
-  border: 1px solid #dbe9e1;
+  border: 1px solid #e4ddf5;
   border-radius: 16px;
-  background: linear-gradient(115deg, #f1f8f4, #e7f3ec);
-  color: #246547;
+  background:
+    radial-gradient(ellipse at 95% 0%, #d7f5f4 0%, transparent 65%),
+    radial-gradient(ellipse at 10% 100%, #fce7ef 0%, transparent 65%), #f3f0ff;
+  color: #534878;
 }
 .voice-activity-copy {
   min-width: 0;
 }
 .voice-activity-label {
   display: block;
-  color: #628571;
-  font-size: 9px;
+  color: #78638e;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 1.4px;
+  letter-spacing: 0.7px;
   text-transform: uppercase;
 }
 .voice-activity-state {
@@ -415,8 +417,9 @@ textarea:disabled {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 42px;
-  flex: 0 0 auto;
+  height: 48px;
+  flex: 0 1 147px;
+  min-width: 80px;
   color: #32835b;
   mask-image: linear-gradient(
     90deg,
@@ -429,15 +432,17 @@ textarea:disabled {
 .voice-wave > span {
   display: block;
   width: 3px;
-  height: var(--wave-height);
+  height: 4px;
   border-radius: 8px;
-  background: currentColor;
-  transform: scaleY(0.22);
+  background: hsl(var(--wave-hue) 65% 57%);
+  flex-shrink: 0;
   opacity: 0.55;
 }
 [data-speaking='true'] .voice-wave > span {
+  height: var(--wave-height);
   transform: scaleY(0.8);
   opacity: 1;
+  box-shadow: 0 2px 10px hsl(var(--wave-hue) 65% 60% / 0.18);
 }
 .microphone-setup {
   margin-top: 10px;
@@ -470,46 +475,6 @@ textarea:disabled {
 }
 .voice-hint.ready {
   color: #356449;
-}
-.recording-toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  padding: 12px 16px;
-  border: 1px solid #ffffff24;
-  border-radius: 22px;
-  background: #153c2d;
-  color: #f3fff7;
-  box-shadow: 0 8px 30px #112c2430;
-  pointer-events: none;
-}
-.recording-toast .voice-wave {
-  color: #a3e9bd;
-  gap: 2px;
-  width: 76px;
-  overflow: hidden;
-}
-.recording-toast-copy strong,
-.recording-toast-copy > span {
-  display: block;
-  font-size: 12px;
-}
-.recording-toast-copy > span {
-  font-size: 11px;
-  margin-top: 2px;
-  color: #b0cdbc;
-}
-.recording-toast kbd {
-  color: inherit;
-  background: transparent;
-  border-color: #ffffff30;
 }
 .talk,
 .hands-free {

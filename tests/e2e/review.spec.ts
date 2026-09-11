@@ -152,6 +152,7 @@ async function simulateSpeech(page: Page) {
         if (globalThis.speechDenied) this.onerror?.({ error: 'not-allowed' });
         else if (!globalThis.speechDelayAudio) {
           this.onaudiostart?.();
+          this.onspeechstart?.();
           if (!globalThis.speechOnRelease) this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] });
         }
       }
@@ -651,7 +652,9 @@ for (const gesture of ['button', 'middle'] as const) {
       'data-voice-phase',
       'starting',
     );
-    await expect(page.getByRole('status')).not.toContainText('Listening.');
+    await expect(page.locator('.voice-activity-state')).toHaveText(
+      'Opening microphone…',
+    );
     await expect
       .poll(async () => (await speech.evaluate('speechStarts')).result.value)
       .toBe(1);
@@ -660,6 +663,8 @@ for (const gesture of ['button', 'middle'] as const) {
       'data-voice-phase',
       'listening',
     );
+    await expect(page.locator('.voice-wave')).toHaveCount(1);
+    await expect(page.locator('.recording-toast')).toHaveCount(0);
     const bar = page.locator('.voice-activity .voice-wave > span').first();
     await expect
       .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
@@ -940,7 +945,7 @@ test('middle mouse records the selected target from anywhere and keeps an editab
     'My written context.\nAdd supporting evidence.',
   );
   await expect(feedback).toBeDisabled();
-  await expect(page.locator('.recording-toast')).toBeVisible();
+  await expect(page.locator('.voice-activity')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
   await expect(page.locator('.target-name')).toHaveText('p#evidence-claim');
   await page.screenshot({ path: info.outputPath('middle-recording.png') });
@@ -952,7 +957,7 @@ test('middle mouse records the selected target from anywhere and keeps an editab
   await page.mouse.move(panel.x + 30, panel.y + 100);
   await page.mouse.up({ button: 'middle' });
   await expect(feedback).toBeEnabled();
-  await expect(page.locator('.recording-toast')).toBeHidden();
+  await expect(page.locator('.voice-activity')).toBeHidden();
   await expect(page.locator('.card')).toHaveCount(0);
   await page.mouse.down({ button: 'middle' });
   await expect(feedback).toHaveValue(
@@ -1011,7 +1016,7 @@ test('middle mouse respects text selections and preserves normal links when sele
   // both autoscroll and the auxiliary click without replacing the text range.
   await page.mouse.move(box.x + 10, box.y + 10);
   await page.mouse.down({ button: 'middle' });
-  await expect(page.locator('.recording-toast')).toBeVisible();
+  await expect(page.locator('.voice-activity')).toBeVisible();
   await expect(page.locator('.voice-slot')).toHaveAttribute(
     'data-voice-phase',
     'listening',
@@ -1083,13 +1088,13 @@ test('middle recording cancels safely and recovers from delayed startup and micr
   ]) {
     await page.mouse.move(90, 250);
     await page.mouse.down({ button: 'middle' });
-    await expect(page.locator('.recording-toast')).toBeVisible();
+    await expect(page.locator('.voice-activity')).toBeVisible();
     if (action === 'escape') await page.keyboard.press('Escape');
     else if (action === 'blur')
       await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     else await page.locator(`[data-action="${action}"]`).click();
     await page.mouse.up({ button: 'middle' });
-    await expect(page.locator('.recording-toast')).toBeHidden();
+    await expect(page.locator('.voice-activity')).toBeHidden();
     if (action === 'settings')
       await page.getByRole('button', { name: 'Back to notes' }).click();
     if (action === 'minimize')

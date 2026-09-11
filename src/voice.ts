@@ -37,7 +37,7 @@ export function mountVoice(
   const activity = document.createElement('div');
   activity.className = 'voice-activity';
   activity.hidden = true;
-  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state"></strong></div>${voiceWave()}`;
+  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state" aria-live="polite"></strong></div>${voiceWave()}`;
   container.prepend(activity);
   const enableMicrophone = document.createElement('button');
   enableMicrophone.type = 'button';
@@ -152,9 +152,7 @@ export function mountVoice(
     language.disabled = true;
     install.disabled = true;
     setPhase('starting');
-    options.notice(
-      'Preparing the microphone. Wait for Listening before speaking.',
-    );
+    options.notice('');
     void provider
       .start(
         (text) => {
@@ -193,11 +191,6 @@ export function mountVoice(
                 : 'Release to finish';
           talk.setAttribute('aria-label', talkLabel.textContent);
           setPhase('listening');
-          options.notice(
-            mode === 'hands-free'
-              ? 'Listening. Click Stop when you’re done.'
-              : 'Listening. Release to finish.',
-          );
         },
         (speaking) => {
           if (currentSession !== session || phase !== 'listening') return;
@@ -225,7 +218,6 @@ export function mountVoice(
       talkLabel.textContent = 'Finishing…';
       talk.setAttribute('aria-label', 'Finishing recording');
       setPhase('finishing');
-      options.notice('Finishing your transcript…');
     }
   };
   enableMicrophone.onclick = async () => {
