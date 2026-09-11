@@ -435,7 +435,7 @@ textarea:disabled {
   transform: scaleY(0.22);
   opacity: 0.55;
 }
-[data-voice-phase='listening'] .voice-wave > span {
+[data-speaking='true'] .voice-wave > span {
   transform: scaleY(0.8);
   opacity: 1;
 }
@@ -989,7 +989,7 @@ kbd {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  [data-voice-phase='listening'] .voice-wave > span {
+  [data-speaking='true'] .voice-wave > span {
     animation: voice-wave var(--wave-duration) ease-in-out var(--wave-delay)
       infinite alternate;
   }

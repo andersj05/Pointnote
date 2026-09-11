@@ -1,4 +1,5 @@
 // Decorative motion, not a measurement of microphone volume.
+// Motion is gated by the recognizer's speech detection, not microphone access.
 export function voiceWave() {
   const heights = [
     7, 12, 18, 10, 24, 32, 20, 13, 28, 38, 26, 16, 30, 40, 25, 15, 34, 22, 12,

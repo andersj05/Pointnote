@@ -74,10 +74,18 @@ export function mountVoice(
   let phase: VoicePhase = 'idle';
   let heardText = false;
   let settingUpMicrophone = false;
+  const setSpeaking = (speaking: boolean) => {
+    activity.dataset.speaking = String(speaking && phase === 'listening');
+    if (phase === 'listening')
+      activity.querySelector('.voice-activity-state')!.textContent = speaking
+        ? 'Hearing you'
+        : 'Listening';
+  };
   const setPhase = (value: VoicePhase) => {
     phase = value;
     container.dataset.voicePhase = value;
     activity.hidden = value === 'idle';
+    setSpeaking(false);
     activity.querySelector('.voice-activity-state')!.textContent =
       value === 'starting'
         ? 'Opening microphone…'
@@ -190,6 +198,10 @@ export function mountVoice(
               ? 'Listening. Click Stop when you’re done.'
               : 'Listening. Release to finish.',
           );
+        },
+        (speaking) => {
+          if (currentSession !== session || phase !== 'listening') return;
+          setSpeaking(speaking);
         },
       )
       .catch((error: unknown) => {

@@ -49,6 +49,7 @@ export class ExtensionSpeechProvider implements TranscriptionProvider {
     onEnd: () => void,
     onError: (text: string) => void,
     onListening = () => {},
+    onSpeaking: (speaking: boolean) => void = () => {},
   ) {
     await requestVoice('prepare');
     if (this.released) {
@@ -60,6 +61,7 @@ export class ExtensionSpeechProvider implements TranscriptionProvider {
     }));
     const finish = () => {
       clearTimeout(this.timer);
+      onSpeaking(false);
       this.port = undefined;
       port.disconnect();
     };
@@ -73,6 +75,11 @@ export class ExtensionSpeechProvider implements TranscriptionProvider {
       if (message.type === 'LISTENING') {
         clearTimeout(this.timer);
         if (!this.released) onListening();
+      } else if (
+        message.type === 'SPEAKING' &&
+        typeof message.speaking === 'boolean'
+      ) {
+        if (!this.released) onSpeaking(message.speaking);
       } else if (message.type === 'TEXT' && typeof message.text === 'string')
         onTranscript(message.text);
       else if (message.type === 'END') {

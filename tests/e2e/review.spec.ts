@@ -663,8 +663,20 @@ for (const gesture of ['button', 'middle'] as const) {
     const bar = page.locator('.voice-activity .voice-wave > span').first();
     await expect
       .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('none');
+    await speech.evaluate('activeSpeech.onspeechstart()');
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
       .toBe('voice-wave');
     await page.screenshot({ path: info.outputPath('voice-wave.png') });
+    await speech.evaluate('activeSpeech.onspeechend()');
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('none');
+    await speech.evaluate('activeSpeech.onspeechstart()');
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('voice-wave');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect
       .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
