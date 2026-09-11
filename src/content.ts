@@ -57,7 +57,7 @@ async function mount() {
             <label class="sr-only" for="feedback">Your feedback</label>
             <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback"></textarea>
             <div class="voice-slot"></div>
-            <div class="composer-actions"><button class="quiet" type="button" data-action="cancel">Clear</button><button class="primary" type="submit" data-action="save" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>Save note <span aria-hidden="true">↵</span></button></div>
+            <div class="composer-actions"><span class="save-hint">Saves when you select the next target</span><button class="quiet" type="button" data-action="cancel" title="Discard this draft and selection">Clear</button><button class="secondary" type="submit" data-action="save" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>Save note</button></div>
           </form>
           <div class="notes-heading"><h2>Notes <span class="count">0</span></h2><div class="note-tools"><label class="search-field">${icon('search')}<input type="search" class="note-search" aria-label="Search notes" placeholder="Search"></label><select class="note-filter" aria-label="Filter notes"><option value="all">All notes</option><option value="open">Open</option><option value="addressed">Addressed</option><option value="needs-reattachment">Needs reattachment</option></select></div></div>
           <div class="notes"></div>
@@ -89,6 +89,7 @@ async function mount() {
   let opened = true,
     reviewing = true,
     busy = false;
+  let transitioning = false;
   let settingsOpen = false,
     minimized = false;
   let page: PageContext = await pageContext();
@@ -117,7 +118,7 @@ async function mount() {
   };
   const layout = mountPanel(panel, {
     initial: configuration.layout,
-    canMove: () => !busy,
+    canMove: () => !busy && !transitioning,
     save: (bounds) => {
       void chrome.storage.local
         .set({ panelLayout: bounds })
@@ -149,6 +150,7 @@ async function mount() {
       return (
         opened &&
         !busy &&
+        !transitioning &&
         !reattaching &&
         !settingsOpen &&
         !minimized &&
@@ -160,7 +162,7 @@ async function mount() {
   });
   mountVoiceShortcut({
     binding: () => preferences.voiceShortcut || defaultShortcut,
-    enabled: () => selectionActive() && !busy && !reattaching,
+    enabled: () => selectionActive() && !busy && !transitioning && !reattaching,
     start: () => voice.start('middle'),
     release: () => voice.release('middle'),
   });
@@ -182,12 +184,13 @@ async function mount() {
       updateControls();
     });
   });
-  const act = (action: () => Promise<void>) => {
+  const act = <T>(action: () => Promise<T>) => {
     void action().catch((error: unknown) =>
       setNotice(error instanceof Error ? error.message : String(error)),
     );
   };
   function updateControls() {
+    const locked = busy || transitioning;
     const holdKey = shortcutLabel(preferences.voiceShortcut);
     $('[data-active-voice-shortcut]').textContent = holdKey;
     $('[data-voice-talk]').title =
@@ -201,14 +204,14 @@ async function mount() {
         : `Hold ${holdKey} to talk about this selection.`;
     voiceHint.classList.toggle('ready', Boolean(selected.length && reviewing));
     $<HTMLButtonElement>('[data-action=save]').disabled =
-      busy ||
+      locked ||
       voice.recording ||
       !selected.length ||
       (!reattaching && !feedback.value.trim());
     $<HTMLButtonElement>('[data-action=export]').disabled =
-      busy || !annotations.length;
+      locked || !annotations.length;
     $<HTMLButtonElement>('[data-action=parent]').disabled =
-      busy ||
+      locked ||
       !selected[0]?.parentElement ||
       selected[0].parentElement === document.body;
     $<HTMLButtonElement>('[data-action=save]').textContent = busy
@@ -223,20 +226,26 @@ async function mount() {
         : !reattaching && !feedback.value.trim()
           ? 'Write or record a note first'
           : 'Save note · Ctrl+Enter or ⌘+Enter';
-    feedback.disabled = busy || voice.recording || Boolean(reattaching);
+    $('.save-hint').textContent = reattaching
+      ? 'Confirm the new target below'
+      : transitioning && voice.recording
+        ? 'Finishing your voice note…'
+        : 'Saves on next selection';
+    feedback.disabled = locked || voice.recording || Boolean(reattaching);
     for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
-      $<HTMLButtonElement>(`[data-action=${action}]`).disabled = busy;
+      $<HTMLButtonElement>(`[data-action=${action}]`).disabled = locked;
     $<HTMLButtonElement>('[data-action=cancel]').disabled =
-      busy || (!selected.length && !feedback.value && !reattaching);
+      locked || (!selected.length && !feedback.value && !reattaching);
     $<HTMLButtonElement>('[data-action=parent]').disabled ||= voice.recording;
     for (const button of root.querySelectorAll<HTMLButtonElement>(
       '[data-mode]',
     ))
-      button.disabled = busy || voice.recording;
+      button.disabled = locked;
     for (const button of root.querySelectorAll<HTMLButtonElement>(
       '.card button',
     ))
-      button.disabled = busy || voice.recording;
+      button.disabled =
+        locked || (voice.recording && !button.matches('.card-title'));
   }
   function renderSelection() {
     $('.target').hidden = !selected.length;
@@ -292,7 +301,7 @@ async function mount() {
       const marker = document.createElement('button');
       marker.className = 'marker';
       marker.style.pointerEvents =
-        reviewing && selectionMode === 'text' ? 'none' : 'auto';
+        reviewing && selectionMode !== 'element' ? 'none' : 'auto';
       marker.textContent = String(i + 1);
       marker.title = a.originalComment;
       marker.setAttribute('aria-label', 'Revisit note ' + (i + 1));
@@ -415,18 +424,21 @@ async function mount() {
       );
       button(
         'Reattach',
-        () => {
-          reattaching = a.id;
-          selectedId = a.id;
-          selected = [];
-          feedback.value = a.originalComment;
-          setReviewing(true);
-          setNotice(
-            'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
-          );
-          renderSelection();
-          renderNotes();
-        },
+        () =>
+          act(() =>
+            changeSelection(() => {
+              reattaching = a.id;
+              selectedId = a.id;
+              selected = [];
+              feedback.value = a.originalComment;
+              setReviewing(true);
+              setNotice(
+                'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
+              );
+              renderSelection();
+              renderNotes();
+            }),
+          ),
         detailActions,
       );
       button(
@@ -579,26 +591,48 @@ async function mount() {
     draw();
   }
   function revisit(a: Annotation) {
-    if (busy || voice.recording) return;
-    voice.stop();
-    selectedId = a.id;
-    reattaching = null;
-    quote = a.targets[0].range;
-    const targets = resolved.get(a.id);
-    if (!targets?.length || a.status === 'needs-reattachment') {
-      selected = [];
-      setNotice(a.attachment.reason + ' Use Reattach to choose the target.');
-    } else {
-      selected = targets;
-      targets[0].scrollIntoView({
-        block: 'center',
-        inline: 'nearest',
-        behavior: 'instant',
-      });
-      setNotice('Note ' + (annotations.indexOf(a) + 1) + ' highlighted.');
+    act(() =>
+      changeSelection(() => {
+        selectedId = a.id;
+        reattaching = null;
+        quote = a.targets[0].range;
+        const targets = resolved.get(a.id);
+        if (!targets?.length || a.status === 'needs-reattachment') {
+          selected = [];
+          setNotice(
+            a.attachment.reason + ' Use Reattach to choose the target.',
+          );
+        } else {
+          selected = targets;
+          targets[0].scrollIntoView({
+            block: 'center',
+            inline: 'nearest',
+            behavior: 'instant',
+          });
+          setNotice('Note ' + (annotations.indexOf(a) + 1) + ' highlighted.');
+        }
+        renderSelection();
+        renderNotes();
+      }),
+    );
+  }
+  async function changeSelection(change: () => void) {
+    if (busy || transitioning) return;
+    transitioning = true;
+    updateControls();
+    try {
+      if (!(await voice.finishDraft())) return;
+      if (!reattaching && selected.length && feedback.value.trim()) {
+        if (!(await save())) return;
+      } else if (!reattaching && selected.length) {
+        feedback.value = '';
+        voice.reset();
+      }
+      change();
+    } finally {
+      transitioning = false;
+      updateControls();
     }
-    renderSelection();
-    renderNotes();
   }
   function underPointer(x: number, y: number): Element | null {
     return (
@@ -621,27 +655,40 @@ async function mount() {
   shield.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (busy || voice.recording || !selectionActive()) return;
+    if (busy || transitioning || !selectionActive()) return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
-    quote = undefined;
-    if (selectionMode === 'multiple' || event.shiftKey) {
-      if (selected.includes(element))
-        selected = selected.filter((el) => el !== element);
-      else if (selected.length < 12) selected = [...selected, element];
-      else {
-        setNotice('A note can include up to 12 elements.');
+    const multiple = selectionMode === 'multiple' || event.shiftKey;
+    if (multiple && voice.recording) return;
+    const choose = () => {
+      if (!element.isConnected) {
+        setNotice('That target disappeared. Select another element.');
         return;
       }
-    } else selected = [element];
-    selectedId = reattaching;
-    hovered = null;
-    setNotice('');
-    renderSelection();
-    if (preferences.voiceShortcut?.kind === 'key') {
-      panel.tabIndex = -1;
-      panel.focus({ preventScroll: true });
-    } else feedback.focus();
+      quote = undefined;
+      if (multiple) {
+        if (selected.includes(element))
+          selected = selected.filter((el) => el !== element);
+        else if (selected.length < 12) selected = [...selected, element];
+        else {
+          setNotice('A note can include up to 12 elements.');
+          return;
+        }
+      } else selected = [element];
+      selectedId = reattaching;
+      hovered = null;
+      renderSelection();
+      if (preferences.voiceShortcut?.kind === 'key') {
+        panel.tabIndex = -1;
+        panel.focus({ preventScroll: true });
+      } else feedback.focus();
+    };
+    if (
+      multiple ||
+      (!quote && selected.length === 1 && selected[0] === element)
+    )
+      choose();
+    else act(() => changeSelection(choose));
   });
   // The shield prevents hit-testing the real controls. Capture listeners also stop
   // bubbling handlers on the host page while selection mode is active.
@@ -670,7 +717,7 @@ async function mount() {
           ['pointerdown', 'pointerup', 'mousedown', 'mouseup'].includes(type)
         ) {
           event.stopImmediatePropagation();
-          if (type === 'mouseup' && !busy && !voice.recording)
+          if (type === 'mouseup' && !busy && !transitioning)
             setTimeout(() => {
               const selection = readTextSelection(window.getSelection());
               if (!selection) {
@@ -679,15 +726,19 @@ async function mount() {
                 );
                 return;
               }
-              selected = [selection.element];
-              quote = selection.quote;
-              selectedId = reattaching;
-              renderSelection();
-              setNotice('Text selected. Add your feedback.');
-              if (preferences.voiceShortcut?.kind === 'key') {
-                panel.tabIndex = -1;
-                panel.focus({ preventScroll: true });
-              } else feedback.focus();
+              act(() =>
+                changeSelection(() => {
+                  selected = [selection.element];
+                  quote = selection.quote;
+                  selectedId = reattaching;
+                  renderSelection();
+                  setNotice('Text selected. Add your feedback.');
+                  if (preferences.voiceShortcut?.kind === 'key') {
+                    panel.tabIndex = -1;
+                    panel.focus({ preventScroll: true });
+                  } else feedback.focus();
+                }),
+              );
             }, 0);
           return;
         }
@@ -705,7 +756,7 @@ async function mount() {
     (event) => {
       if (!opened) return;
       if (event.key === 'Escape') {
-        if (busy) return;
+        if (busy || transitioning) return;
         if (voice.recording) voice.stop();
         else if (settingsOpen && !minimized) showSettings(false);
         else if (minimized) setMinimized(false);
@@ -760,21 +811,24 @@ async function mount() {
   $('.note-filter').addEventListener('change', renderNotes);
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-mode]'))
     button.onclick = () => {
-      if (busy || voice.recording) return;
-      selectionMode = button.dataset.mode as typeof selectionMode;
-      selected = [];
-      quote = undefined;
-      hovered = null;
-      for (const b of root.querySelectorAll('[data-mode]'))
-        b.setAttribute('aria-pressed', String(b === button));
-      $('.hint').textContent =
-        selectionMode === 'text'
-          ? 'Drag across a passage on the page'
-          : selectionMode === 'multiple'
-            ? 'Select up to 12 elements on the page'
-            : 'Select an element on the page';
-      setReviewing(true);
-      renderSelection();
+      act(() =>
+        changeSelection(() => {
+          selectionMode = button.dataset.mode as typeof selectionMode;
+          selected = [];
+          quote = undefined;
+          hovered = null;
+          for (const b of root.querySelectorAll('[data-mode]'))
+            b.setAttribute('aria-pressed', String(b === button));
+          $('.hint').textContent =
+            selectionMode === 'text'
+              ? 'Drag across a passage on the page'
+              : selectionMode === 'multiple'
+                ? 'Select up to 12 elements on the page'
+                : 'Select an element on the page';
+          setReviewing(true);
+          renderSelection();
+        }),
+      );
     };
   $('[data-action=pause]').onclick = () => {
     if (!busy) {
@@ -801,19 +855,19 @@ async function mount() {
     event.preventDefault();
     act(save);
   });
-  async function save() {
+  async function save(): Promise<boolean> {
     if (
       busy ||
       voice.recording ||
       !selected.length ||
       (!reattaching && !feedback.value.trim())
     )
-      return;
+      return false;
     if (selected.some((el) => !el.isConnected)) {
       setNotice(
         'The selection changed or disappeared. Select it again before saving.',
       );
-      return;
+      return false;
     }
     busy = true;
     updateControls();
@@ -822,7 +876,7 @@ async function mount() {
       const currentPage = await pageContext();
       if (currentPage.key !== page.key) {
         setNotice('The page changed. Select the target again.');
-        return;
+        return false;
       }
       const now = new Date().toISOString();
       const id = reattaching || crypto.randomUUID(),
@@ -902,6 +956,13 @@ async function mount() {
           ? 'Saved locally, with a screenshot.'
           : 'Note saved. Screenshot unavailable: ' + screenshot.reason,
       );
+      return true;
+    } catch (error) {
+      setNotice(
+        'Could not save. Your draft and target have been kept. ' +
+          (error instanceof Error ? error.message : String(error)),
+      );
+      return false;
     } finally {
       busy = false;
       renderSelection();
@@ -936,7 +997,8 @@ async function mount() {
       );
     });
   chrome.runtime.onMessage.addListener((message: { type: string }) => {
-    if (message.type === 'TOGGLE' && !busy) setOpened(!opened);
+    if (message.type === 'TOGGLE' && !busy && !transitioning)
+      setOpened(!opened);
   });
   const observer = new MutationObserver((mutations) => {
     if (
@@ -970,7 +1032,7 @@ async function mount() {
   window.addEventListener('scroll', draw, true);
   window.addEventListener('resize', draw);
   setInterval(() => {
-    if (location.href !== lastUrl && !busy) {
+    if (location.href !== lastUrl && !busy && !transitioning) {
       voice.stop();
       lastUrl = location.href;
       selected = [];

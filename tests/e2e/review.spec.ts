@@ -1135,3 +1135,82 @@ test('middle recording cancels safely and recovers from delayed startup and micr
   expect((await speech.evaluate('speechStarts')).result.value).toBe(starts);
   await speech.close();
 });
+
+test('switching targets autosaves exact drafts and keeps selection refinements together', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await select(page, '#evidence-claim');
+  const words = '  Keep these exact words.\nAdd the source.  ';
+  await draft.fill(words);
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .comment')).toHaveText(words);
+  await expect(page.locator('.target-name')).toContainText('retention-chart');
+  await expect(draft).toHaveValue('');
+  await draft.fill('Label the comparison.');
+  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await expect(page.locator('.target-name')).toContainText('evidence-claim');
+  await expect(draft).toHaveValue('');
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Multiple', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await draft.fill('Compare these together.');
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(2);
+  await expect(draft).toHaveValue('Compare these together.');
+  await page.getByRole('button', { name: 'Text range', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(3);
+  await expect(draft).toHaveValue('');
+  await page.reload();
+  await expect(page.locator('.card')).toHaveCount(3);
+  await expect(page.locator('.card .comment').first()).toHaveText(words);
+});
+
+test('switching during recording waits for final words and saves to the original target once', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const speech = await simulateSpeech(page);
+  await speech.evaluate('speechOnRelease = true');
+  await select(page, '#evidence-claim');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Written context.');
+  const composerHeight = (await page.locator('.composer').boundingBox())!
+    .height;
+  await page
+    .getByRole('button', { name: 'Start hands-free recording' })
+    .click();
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
+  expect((await page.locator('.composer').boundingBox())!.height).toBe(
+    composerHeight,
+  );
+  expect(
+    (await page.locator('.voice-activity').boundingBox())!.height,
+  ).toBeLessThanOrEqual(24);
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('compact-recording.png') });
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .comment')).toHaveText(
+    'Written context.\nFinal words from the microphone.',
+  );
+  await expect(page.locator('.target-name')).toContainText('retention-chart');
+  await expect(draft).toHaveValue('');
+  await draft.fill('A separate typed note.');
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await expect(page.locator('.target-name')).toContainText('evidence-claim');
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('compact-notes.png') });
+  await speech.close();
+});
