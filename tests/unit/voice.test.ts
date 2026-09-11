@@ -94,6 +94,42 @@ describe('replaceable speech provider', () => {
     );
     expect(FakeRecognition.latest.start).not.toHaveBeenCalled();
   });
+  it('times out a stalled language check without starting recognition', async () => {
+    vi.useFakeTimers();
+    FakeRecognition.available.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const provider = new BrowserSpeechProvider(
+      true,
+      'en-US',
+      () => FakeRecognition,
+    );
+    const result = expect(
+      provider.start(vi.fn(), vi.fn(), vi.fn()),
+    ).rejects.toThrow('did not finish checking the speech language pack');
+    await vi.advanceTimersByTimeAsync(15000);
+    await result;
+    expect(FakeRecognition.latest.start).not.toHaveBeenCalled();
+  });
+  it('unlocks a stalled stop even if audio starts after release', async () => {
+    vi.useFakeTimers();
+    class DelayedRecognition extends FakeRecognition {
+      start = vi.fn();
+      stop = vi.fn();
+    }
+    const provider = new BrowserSpeechProvider(
+      true,
+      'en-US',
+      () => DelayedRecognition,
+    );
+    const end = vi.fn();
+    await provider.start(vi.fn(), end, vi.fn());
+    provider.stop();
+    FakeRecognition.latest.onaudiostart?.();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(FakeRecognition.latest.abort).toHaveBeenCalled();
+  });
   it('keeps hands-free recording alive when a permission prompt takes focus', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     const voice = mountVoice(document.createElement('div'), {

@@ -85,6 +85,18 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
     clearTimeout(this.timer);
     this.timer = undefined;
   }
+  private async waitForSetup<T>(task: Promise<T>, message: string): Promise<T> {
+    try {
+      return await Promise.race([
+        task,
+        new Promise<never>((_, reject) => {
+          this.timer = setTimeout(() => reject(new Error(message)), 15000);
+        }),
+      ]);
+    } finally {
+      this.clearTimer();
+    }
+  }
   constructor(
     private local: boolean,
     private language = 'en-US',
@@ -118,10 +130,13 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
           'This browser does not support on-device recognition. You can type, or explicitly choose the browser speech service.',
         );
       recognition.processLocally = true;
-      const availability = await Constructor.available({
-        langs: [this.language],
-        processLocally: true,
-      });
+      const availability = await this.waitForSetup(
+        Constructor.available({
+          langs: [this.language],
+          processLocally: true,
+        }),
+        'The browser did not finish checking the speech language pack. Open Voice settings and try installing the pack again.',
+      );
       if (this.released) {
         onEnd();
         return;
@@ -130,14 +145,18 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
         throw new Error(languagePackMessage(this.language, availability));
     } else if ('processLocally' in recognition)
       recognition.processLocally = false;
-    await this.checkPermission();
+    await this.waitForSetup(
+      this.checkPermission(),
+      'The browser did not finish checking microphone access. Try Enable microphone again.',
+    );
     if (this.released) {
       onEnd();
       return;
     }
     recognition.onaudiostart = () => {
+      if (this.released) return;
       this.clearTimer();
-      if (!this.released) onListening();
+      onListening();
     };
     recognition.onresult = (event) => {
       if (!this.released) {
@@ -196,6 +215,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
     if (!this.requested) return false;
     // Keep accepting final results after release; stop() is asynchronous.
     this.timer = setTimeout(() => {
+      if (this.recognition) this.recognition.onend = null;
       this.abort();
       this.end?.();
     }, 5000);

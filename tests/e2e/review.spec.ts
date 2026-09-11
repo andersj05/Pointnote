@@ -20,7 +20,9 @@ async function launch() {
     headless: true,
     viewport: { width: 1440, height: 1000 },
     acceptDownloads: true,
+    permissions: ['microphone'],
     args: [
+      '--use-fake-device-for-media-stream',
       '--enable-unsafe-extension-debugging',
       '--disable-extensions-except=' + extensionPath,
       '--load-extension=' + extensionPath,
@@ -84,6 +86,8 @@ async function simulateSpeech(page: Page) {
     globalThis.speechStarts = 0;
     globalThis.speechDenied = false;
     globalThis.speechPending = false;
+    globalThis.speechDelayAudio = false;
+    globalThis.speechOnRelease = false;
     globalThis.SpeechRecognition = class {
       static available() {
         return globalThis.speechPending
@@ -92,11 +96,21 @@ async function simulateSpeech(page: Page) {
       }
       processLocally = true;
       start() {
+        globalThis.activeSpeech = this;
         globalThis.speechStarts++;
         if (globalThis.speechDenied) this.onerror?.({ error: 'not-allowed' });
-        else this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] });
+        else if (!globalThis.speechDelayAudio) {
+          this.onaudiostart?.();
+          if (!globalThis.speechOnRelease) this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] });
+        }
       }
-      stop() { this.onend?.(); }
+      stop() {
+        if (globalThis.speechOnRelease) setTimeout(() => {
+          this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Final words from the microphone.' } }] });
+          this.onend?.();
+        }, 250);
+        else this.onend?.();
+      }
       abort() { this.onend?.(); }
     };
   `);
@@ -592,6 +606,103 @@ test('hands-free recording toggles and stops when leaving the workspace', async 
   await page.getByRole('button', { name: 'Save note' }).click();
   await expect(page.locator('.card')).toHaveCount(1);
   await cdp.detach();
+});
+
+for (const gesture of ['button', 'middle'] as const) {
+  test(`${gesture} hold waits for audio, animates waves, and keeps the final transcript`, async ({}, info) => {
+    const page = await context.newPage();
+    await page.goto('http://127.0.0.1:4173/report.html');
+    await activate(page);
+    await select(page, '#evidence-claim');
+    const speech = await simulateSpeech(page);
+    await speech.evaluate('speechDelayAudio = true; speechOnRelease = true');
+    const mouseButton = gesture === 'middle' ? 'middle' : 'left';
+    if (gesture === 'button') {
+      const box = (await page
+        .getByRole('button', { name: 'Hold to talk', exact: true })
+        .boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    } else await page.mouse.move(100, 160);
+    await page.mouse.down({ button: mouseButton });
+    await expect(page.locator('.voice-slot')).toHaveAttribute(
+      'data-voice-phase',
+      'starting',
+    );
+    await expect(page.getByRole('status')).not.toContainText('Listening.');
+    await expect
+      .poll(async () => (await speech.evaluate('speechStarts')).result.value)
+      .toBe(1);
+    await speech.evaluate('activeSpeech.onaudiostart()');
+    await expect(page.locator('.voice-slot')).toHaveAttribute(
+      'data-voice-phase',
+      'listening',
+    );
+    const bar = page.locator('.voice-activity .voice-wave > span').first();
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('voice-wave');
+    await page.screenshot({ path: info.outputPath('voice-wave.png') });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('none');
+    await page.mouse.up({ button: mouseButton });
+    await expect(page.locator('.voice-slot')).toHaveAttribute(
+      'data-voice-phase',
+      'finishing',
+    );
+    await expect(
+      page.getByRole('textbox', { name: 'Your feedback' }),
+    ).toHaveValue('Final words from the microphone.');
+    await expect(page.getByRole('button', { name: 'Save note' })).toBeEnabled();
+    await expect(page.locator('.voice-activity')).toBeHidden();
+    await speech.close();
+  });
+}
+
+test('microphone setup obtains browser audio access separately from a hold and closes the setup stream', async () => {
+  await context.clearPermissions();
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  const speech = await simulateSpeech(page);
+  await page.mouse.move(100, 160);
+  await page.mouse.down({ button: 'middle' });
+  await expect(
+    page.getByRole('button', { name: 'Enable microphone', exact: true }),
+  ).toBeVisible();
+  await page.mouse.up({ button: 'middle' });
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(0);
+  await context.grantPermissions(['microphone']);
+  // Use Chromium's actual getUserMedia with its fake hardware device.
+  // Recognition is still simulated; this verifies permission and stream cleanup.
+  await speech.evaluate(`
+    const getAudio = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      const stream = await getAudio(constraints);
+      globalThis.setupTracks = stream.getTracks();
+      return stream;
+    };
+  `);
+  await page
+    .getByRole('button', { name: 'Enable microphone', exact: true })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Microphone enabled');
+  expect(
+    (
+      await speech.evaluate(
+        'setupTracks.length > 0 && setupTracks.every(track => track.readyState === "ended")',
+      )
+    ).result.value,
+  ).toBe(true);
+  await page.mouse.move(100, 160);
+  await page.mouse.down({ button: 'middle' });
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toHaveValue('Add supporting evidence.');
+  await page.mouse.up({ button: 'middle' });
+  await speech.close();
 });
 
 test('middle mouse records the selected target from anywhere and keeps an editable draft', async ({}, info) => {
