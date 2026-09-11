@@ -46,8 +46,9 @@ async function mount() {
     <aside class="panel" aria-label="Pointnote review">
       <header class="top">
         <button class="drag-handle" data-panel-handle="move" aria-label="Move panel" title="Drag to move · arrow keys to nudge"><span class="logo" aria-hidden="true">${icon('note')}</span><span class="brand">pointnote</span><span class="drag-dots">${icon('grip')}</span></button>
-        <div class="window-actions"><button class="icon" data-action="settings" aria-label="Open settings" title="Settings" aria-expanded="false">${icon('settings')}</button><button class="icon" data-action="minimize" aria-label="Minimize Pointnote" title="Minimize">${icon('minus')}</button><button class="icon" data-action="close" aria-label="Close Pointnote" title="Close">${icon('close')}</button></div>
+        <div class="window-actions"><button class="icon clear-page" data-action="clear-page" aria-label="Clear all notes for this page" title="Clear all notes for this page" aria-expanded="false" disabled>${icon('trash')}</button><button class="icon" data-action="settings" aria-label="Open settings" title="Settings" aria-expanded="false">${icon('settings')}</button><button class="icon" data-action="minimize" aria-label="Minimize Pointnote" title="Minimize">${icon('minus')}</button><button class="icon" data-action="close" aria-label="Close Pointnote" title="Close">${icon('close')}</button></div>
       </header>
+      <div class="clear-page-confirmation" role="group" aria-label="Clear page notes" hidden><p class="clear-page-prompt"></p><div><button class="secondary" data-action="keep-notes">Cancel</button><button class="secondary danger" data-action="confirm-clear-page">Delete notes</button></div></div>
       <div class="workspace">
         <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
@@ -92,6 +93,7 @@ async function mount() {
     busy = false;
   let transitioning = false;
   let exportSnapshot: Annotation[] = [];
+  let clearPageKey: string | undefined;
   let settingsOpen = false,
     minimized = false;
   let page: PageContext = await pageContext();
@@ -193,6 +195,10 @@ async function mount() {
   };
   function updateControls() {
     const locked = busy || transitioning;
+    $<HTMLButtonElement>('[data-action=clear-page]').disabled =
+      locked || voice.recording || !annotations.length;
+    $<HTMLButtonElement>('[data-action=confirm-clear-page]').disabled = locked;
+    $<HTMLButtonElement>('[data-action=keep-notes]').disabled = locked;
     const holdKey = shortcutLabel(preferences.voiceShortcut);
     $('[data-active-voice-shortcut]').textContent = holdKey;
     $('[data-voice-talk]').title =
@@ -559,6 +565,7 @@ async function mount() {
     return opened && reviewing && !settingsOpen && !minimized;
   }
   function showSettings(value: boolean) {
+    closeClearPage();
     closeExport();
     voice.stop();
     settingsOpen = value;
@@ -571,6 +578,7 @@ async function mount() {
     else $('[data-action=settings]').focus();
   }
   function setMinimized(value: boolean) {
+    closeClearPage();
     closeExport();
     voice.stop();
     minimized = value;
@@ -587,6 +595,7 @@ async function mount() {
     button.focus();
   }
   function setOpened(value: boolean) {
+    closeClearPage();
     closeExport();
     if (!value) voice.stop();
     opened = value;
@@ -768,7 +777,8 @@ async function mount() {
       if (!opened) return;
       if (event.key === 'Escape') {
         if (busy || transitioning) return;
-        if (!$('.export-menu').hidden) closeExport(true);
+        if (!$('.clear-page-confirmation').hidden) closeClearPage(true);
+        else if (!$('.export-menu').hidden) closeExport(true);
         else if (voice.recording) voice.stop();
         else if (settingsOpen && !minimized) showSettings(false);
         else if (minimized) setMinimized(false);
@@ -989,6 +999,64 @@ async function mount() {
     $('[data-action=export]').setAttribute('aria-expanded', 'false');
     if (restoreFocus) $('[data-action=export]').focus();
   }
+  function closeClearPage(restoreFocus = false) {
+    clearPageKey = undefined;
+    $('.clear-page-confirmation').hidden = true;
+    $('[data-action=clear-page]').setAttribute('aria-expanded', 'false');
+    if (restoreFocus) $('[data-action=clear-page]').focus();
+  }
+  $('[data-action=clear-page]').onclick = () => {
+    if (busy || transitioning || voice.recording || !annotations.length) return;
+    if (clearPageKey) {
+      closeClearPage();
+      return;
+    }
+    closeExport();
+    clearPageKey = page.key;
+    $('.clear-page-prompt').textContent =
+      `Delete all ${annotations.length} saved notes on this page?${feedback.value && !reattaching ? ' Your draft will stay.' : ''}`;
+    $('.clear-page-confirmation').hidden = false;
+    $('[data-action=clear-page]').setAttribute('aria-expanded', 'true');
+    $('[data-action=keep-notes]').focus();
+  };
+  $('[data-action=keep-notes]').onclick = () => closeClearPage(true);
+  $('[data-action=confirm-clear-page]').onclick = () =>
+    act(async () => {
+      if (busy || transitioning || !clearPageKey) return;
+      const key = clearPageKey;
+      busy = true;
+      updateControls();
+      try {
+        while (matching)
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        if ((await pageContext()).key !== key)
+          throw new Error(
+            'The page changed. Reopen Clear all notes on the intended page.',
+          );
+        await rpc({ type: 'DELETE_PAGE', pageKey: key });
+        annotations = [];
+        resolved.clear();
+        exportSnapshot = [];
+        if (reattaching) {
+          feedback.value = '';
+          voice.reset();
+        }
+        selectedId = null;
+        reattaching = null;
+        $<HTMLSelectElement>('.note-filter').value = 'all';
+        $<HTMLInputElement>('.note-search').value = '';
+        closeClearPage();
+        setNotice('All saved notes on this page deleted.');
+      } finally {
+        busy = false;
+        renderNotes();
+        renderSelection();
+        if (matchAgain) scheduleRefresh();
+        if (!$('.clear-page-confirmation').hidden)
+          $('[data-action=keep-notes]').focus();
+        else feedback.focus({ preventScroll: true });
+      }
+    });
   $('[data-action=export]').onclick = () => {
     if (!$('.export-menu').hidden) {
       closeExport();
@@ -1041,6 +1109,12 @@ async function mount() {
     'pointerdown',
     (event) => {
       if (!event.composedPath().includes($('.footer'))) closeExport();
+      if (
+        !busy &&
+        !event.composedPath().includes($('.clear-page-confirmation')) &&
+        !event.composedPath().includes($('[data-action=clear-page]'))
+      )
+        closeClearPage();
     },
     true,
   );
@@ -1129,6 +1203,7 @@ async function mount() {
   window.addEventListener('resize', draw);
   setInterval(() => {
     if (location.href !== lastUrl && !busy && !transitioning) {
+      closeClearPage();
       closeExport();
       voice.stop();
       lastUrl = location.href;

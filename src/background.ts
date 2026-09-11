@@ -1,4 +1,9 @@
-import { listAnnotations, putAnnotation, deleteAnnotation } from './storage';
+import {
+  listAnnotations,
+  putAnnotation,
+  deleteAnnotation,
+  deletePageAnnotations,
+} from './storage';
 import type { Request, Response } from './types';
 import { mountVoiceBackground } from './voice-background';
 mountVoiceBackground();
@@ -78,6 +83,11 @@ chrome.runtime.onMessage.addListener(
         case 'DELETE':
           await deleteAnnotation(message.id, message.pageKey);
           return null;
+        case 'DELETE_PAGE':
+          if (typeof message.pageKey !== 'string' || !message.pageKey)
+            throw new Error('Page key is required.');
+          await deletePageAnnotations(message.pageKey);
+          return null;
         case 'ENABLED':
           await chrome.storage.session.set({
             [`tab:${tab.id}`]: message.enabled,
@@ -109,7 +119,9 @@ chrome.runtime.onMessage.addListener(
       }
     };
     const task =
-      message.type === 'PUT' || message.type === 'DELETE'
+      message.type === 'PUT' ||
+      message.type === 'DELETE' ||
+      message.type === 'DELETE_PAGE'
         ? (writeQueue = writeQueue.then(handle, handle))
         : message.type === 'CAPTURE'
           ? (captureQueue = captureQueue.then(handle, handle))

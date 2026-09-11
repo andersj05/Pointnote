@@ -176,6 +176,30 @@ button svg,
   display: flex;
   gap: 1px;
 }
+.clear-page {
+  border: 1px solid var(--line);
+  margin-right: 4px;
+}
+.clear-page:hover,
+.danger {
+  color: #a53f25;
+  background: #fff3ed;
+}
+.clear-page-confirmation {
+  padding: 10px 12px;
+  background: #fff8f3;
+  border-bottom: 1px solid #eddbd0;
+  flex-shrink: 0;
+}
+.clear-page-confirmation p {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.clear-page-confirmation > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .icon {
   background: transparent;
   border: 0;

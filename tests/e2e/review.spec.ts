@@ -1390,3 +1390,71 @@ test('clipboard fallback copies Markdown when the page has no Clipboard API', as
     page.getByRole('button', { name: 'Export feedback' }),
   ).toBeFocused();
 });
+
+test('clear all notes confirms page scope, preserves drafts, and recovers from failure', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const clearAll = page.getByRole('button', {
+    name: 'Clear all notes for this page',
+  });
+  await expect(clearAll).toBeDisabled();
+  await select(page, '#evidence-claim');
+  await save(page, 'Add a source.', 1);
+  await select(page, '#retention-chart');
+  await save(page, 'Label this chart.', 2);
+  const other = await context.newPage();
+  await other.goto('http://127.0.0.1:4173/frontend.html');
+  await activate(other);
+  await select(other, '#complete-task');
+  await save(other, 'Keep this other page note.', 1);
+  await page.bringToFront();
+  await select(page, '#evidence-claim');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Keep my unsaved draft.');
+  await page.getByRole('searchbox', { name: 'Search notes' }).fill('chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await clearAll.click();
+  await expect(
+    page.getByRole('group', { name: 'Clear page notes', exact: true }),
+  ).toContainText('all 2 saved notes on this page');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(draft).toHaveValue('Keep my unsaved draft.');
+  await clearAll.click();
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('clear-page.png') });
+  await inContentWorld(
+    page,
+    `
+    globalThis.originalSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = (message, ...args) => message.type === 'DELETE_PAGE'
+      ? Promise.resolve({ ok: false, error: 'Simulated delete failure.' })
+      : globalThis.originalSendMessage(message, ...args);
+  `,
+  );
+  await page.getByRole('button', { name: 'Delete notes', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'Simulated delete failure',
+  );
+  await expect(page.locator('.count')).toHaveText('2');
+  await expect(draft).toHaveValue('Keep my unsaved draft.');
+  await inContentWorld(
+    page,
+    'chrome.runtime.sendMessage = globalThis.originalSendMessage',
+  );
+  await page.getByRole('button', { name: 'Delete notes', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await expect(page.locator('.marker')).toHaveCount(0);
+  await expect(clearAll).toBeDisabled();
+  await expect(draft).toHaveValue('Keep my unsaved draft.');
+  await page.reload();
+  await expect(page.locator('.count')).toHaveText('0');
+  await other.bringToFront();
+  await other.reload();
+  await expect(other.locator('.card')).toHaveCount(1);
+  await expect(other.locator('.comment')).toHaveText(
+    'Keep this other page note.',
+  );
+});

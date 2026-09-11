@@ -5,6 +5,7 @@ import { matchTarget } from '../../src/anchor';
 import { createBundle, createMarkdown } from '../../src/export';
 import {
   deleteAnnotation,
+  deletePageAnnotations,
   listAnnotations,
   putAnnotation,
 } from '../../src/storage';
@@ -197,6 +198,11 @@ describe('local storage and export', () => {
     expect(await listAnnotations(a.page.key)).toHaveLength(3);
     await deleteAnnotation(a.id, a.page.key);
     expect(await listAnnotations(a.page.key)).toHaveLength(2);
+    const otherPage = annotation();
+    await putAnnotation(otherPage);
+    await deletePageAnnotations(a.page.key);
+    expect(await listAnnotations(a.page.key)).toEqual([]);
+    expect(await listAnnotations(otherPage.page.key)).toEqual([otherPage]);
   });
   it('preserves exact words, instructions, screenshot files and missing reasons', () => {
     const a = annotation(),

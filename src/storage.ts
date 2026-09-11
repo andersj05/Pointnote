@@ -60,3 +60,22 @@ export async function deleteAnnotation(
     tx.onerror = () => reject(tx.error);
   });
 }
+export async function deletePageAnnotations(pageKey: string): Promise<void> {
+  const database = await db();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction('annotations', 'readwrite');
+    const request = tx
+      .objectStore('annotations')
+      .index('pageKey')
+      .openCursor(pageKey);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      cursor.delete();
+      cursor.continue();
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('Page deletion aborted'));
+  });
+}
