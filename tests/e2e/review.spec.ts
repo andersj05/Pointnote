@@ -693,6 +693,9 @@ for (const gesture of ['button', 'middle'] as const) {
       .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
       .toBe('voice-wave');
     await page.screenshot({ path: info.outputPath('voice-wave.png') });
+    await page
+      .locator('.panel')
+      .screenshot({ path: info.outputPath('voice-panel.png') });
     await speech.evaluate('activeSpeech.onspeechend()');
     await expect
       .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
@@ -705,6 +708,12 @@ for (const gesture of ['button', 'middle'] as const) {
     await expect
       .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
       .toBe('none');
+    await page.setViewportSize({ width: 320, height: 640 });
+    const activity = page.locator('.voice-activity');
+    expect(
+      await activity.evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await page.screenshot({ path: info.outputPath('compact-voice.png') });
     await page.mouse.up({ button: mouseButton });
     await expect(page.locator('.voice-slot')).toHaveAttribute(
       'data-voice-phase',

@@ -69,3 +69,50 @@ describe('voice background compatibility', () => {
     });
   });
 });
+
+describe('speech activity messages', () => {
+  it('relays speech detection, ignores late activity, and retains the final transcript', async () => {
+    let receive: (message: object) => void = () => {};
+    const port = {
+      postMessage: vi.fn(),
+      disconnect: vi.fn(),
+      onDisconnect: { addListener: vi.fn() },
+      onMessage: {
+        addListener: (listener: typeof receive) => {
+          receive = listener;
+        },
+      },
+    };
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValue({ ok: true }),
+        connect: vi.fn(() => port),
+      },
+    });
+    const provider = new ExtensionSpeechProvider(true);
+    const speaking = vi.fn(),
+      transcript = vi.fn(),
+      end = vi.fn(),
+      listening = vi.fn();
+    await provider.start(transcript, end, vi.fn(), listening, speaking);
+    receive({ type: 'LISTENING' });
+    expect(listening).toHaveBeenCalledOnce();
+    expect(speaking).not.toHaveBeenCalled();
+    receive({ type: 'SPEAKING', speaking: 'true' });
+    expect(speaking).not.toHaveBeenCalled();
+    receive({ type: 'SPEAKING', speaking: true });
+    receive({ type: 'SPEAKING', speaking: false });
+    expect(speaking.mock.calls).toEqual([[true], [false]]);
+    provider.stop();
+    receive({ type: 'SPEAKING', speaking: true });
+    expect(speaking).toHaveBeenCalledTimes(2);
+    receive({ type: 'TEXT', text: 'Final words' });
+    expect(transcript).toHaveBeenCalledWith('Final words');
+    receive({ type: 'END' });
+    expect(speaking).toHaveBeenLastCalledWith(false);
+    expect(end).toHaveBeenCalledOnce();
+    expect(port.disconnect).toHaveBeenCalledOnce();
+    receive({ type: 'SPEAKING', speaking: true });
+    expect(speaking).toHaveBeenCalledTimes(3);
+  });
+});
