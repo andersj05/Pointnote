@@ -10,6 +10,7 @@ export interface Recognizer {
   continuous: boolean;
   interimResults: boolean;
   processLocally?: boolean;
+  onaudiostart?: (() => void) | null;
   onresult: ((event: { results: ArrayLike<SpeechResult> }) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
@@ -34,11 +35,30 @@ export interface TranscriptionProvider {
     onTranscript: (text: string) => void,
     onEnd: () => void,
     onError: (message: string) => void,
+    onListening?: () => void,
   ): Promise<void>;
-  stop(): void;
+  stop(): boolean;
   abort(): void;
 }
 type RecordingMode = 'hold' | 'middle' | 'hands-free';
+export type VoicePhase = 'idle' | 'starting' | 'listening' | 'finishing';
+export class MicrophoneSetupError extends Error {}
+async function checkMicrophonePermission() {
+  if (globalThis.isSecureContext === false)
+    throw new MicrophoneSetupError(
+      'Microphone access needs HTTPS or localhost. Open this page through a secure address, then try again.',
+    );
+  // Some browsers do not expose microphone permission through Permissions API.
+  const permission = await navigator.permissions
+    ?.query({ name: 'microphone' as PermissionName })
+    .catch(() => undefined);
+  if (permission && permission.state !== 'granted')
+    throw new MicrophoneSetupError(
+      permission.state === 'denied'
+        ? 'Microphone access is blocked for this page. Allow it in browser site settings, then choose Enable microphone.'
+        : 'Choose Enable microphone once and allow access. Then hold the button or middle mouse to talk.',
+    );
+}
 function languagePackMessage(language: string, availability: string) {
   if (availability === 'downloadable')
     return `The browser's ${language} speech language pack is missing. Open Settings → Voice → Install language pack. A Windows language pack does not install this browser pack.`;
@@ -57,10 +77,18 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
   readonly id: string;
   private recognition?: Recognizer;
   private released = false;
+  private requested = false;
+  private timer?: ReturnType<typeof setTimeout>;
+  private end?: () => void;
+  private clearTimer() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+  }
   constructor(
     private local: boolean,
     private language = 'en-US',
     private factory = browserRecognition,
+    private checkPermission = checkMicrophonePermission,
   ) {
     this.id = local ? 'web-speech-on-device' : 'web-speech-browser-service';
   }
@@ -68,8 +96,11 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
     onTranscript: (text: string) => void,
     onEnd: () => void,
     onError: (message: string) => void,
+    onListening: () => void = () => {},
   ) {
     this.released = false;
+    this.requested = false;
+    this.end = onEnd;
     const Constructor = this.factory();
     if (!Constructor)
       throw new Error(
@@ -98,18 +129,35 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
         throw new Error(languagePackMessage(this.language, availability));
     } else if ('processLocally' in recognition)
       recognition.processLocally = false;
-    recognition.onresult = (event) =>
+    await this.checkPermission();
+    if (this.released) {
+      onEnd();
+      return;
+    }
+    recognition.onaudiostart = () => {
+      this.clearTimer();
+      if (!this.released) onListening();
+    };
+    recognition.onresult = (event) => {
+      if (!this.released) {
+        this.clearTimer();
+        onListening();
+      }
       onTranscript(
         Array.from(event.results)
           .map((r) => r[0].transcript)
           .join(' ')
           .trim(),
       );
+    };
     recognition.onerror = (event) => {
+      this.clearTimer();
       const messages: Record<string, string> = {
         'not-allowed':
           'Microphone access was denied. Allow it for this page in browser site settings, then try again.',
         'audio-capture': 'No microphone is available.',
+        'service-not-allowed':
+          'This browser or page blocks the selected speech provider. Check Voice settings and browser permissions.',
         network: 'The browser speech service is unavailable or offline.',
         'no-speech': 'No speech detected. Try recording again.',
         'language-not-supported':
@@ -119,21 +167,55 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
         messages[event.error] || 'Speech recognition stopped: ' + event.error,
       );
     };
-    recognition.onend = onEnd;
-    if (!this.released) recognition.start();
-    else onEnd();
+    recognition.onend = () => {
+      this.clearTimer();
+      this.requested = false;
+      onEnd();
+    };
+    if (!this.released) {
+      this.requested = true;
+      this.timer = setTimeout(() => {
+        onError(
+          'The microphone did not start. Choose Enable microphone, check your input device in browser settings, then try again.',
+        );
+        this.abort();
+      }, 15000);
+      try {
+        recognition.start();
+      } catch (error) {
+        recognition.onend = null;
+        this.abort();
+        throw error;
+      }
+    } else onEnd();
   }
   stop() {
     this.released = true;
+    this.clearTimer();
+    if (!this.requested) return false;
+    // Keep accepting final results after release; stop() is asynchronous.
+    this.timer = setTimeout(() => {
+      this.abort();
+      this.end?.();
+    }, 5000);
     try {
       this.recognition?.stop();
     } catch {
       /* May be awaiting the language pack check. */
+      this.abort();
+      return false;
     }
+    return true;
   }
   abort() {
     this.released = true;
-    this.recognition?.abort();
+    this.requested = false;
+    this.clearTimer();
+    try {
+      this.recognition?.abort();
+    } catch {
+      /* The browser may already have ended. */
+    }
   }
 }
 export function mountVoice(
@@ -151,6 +233,12 @@ export function mountVoice(
 ) {
   container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
+  const enableMicrophone = document.createElement('button');
+  enableMicrophone.type = 'button';
+  enableMicrophone.className = 'secondary microphone-setup';
+  enableMicrophone.textContent = 'Enable microphone';
+  enableMicrophone.hidden = true;
+  container.append(enableMicrophone);
   if (!options.settings) container.append(settings);
   settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
   const talk = container.querySelector<HTMLButtonElement>('[data-voice-talk]')!;
@@ -173,14 +261,20 @@ export function mountVoice(
   let session = 0,
     installing = false;
   let recording = false,
-    starting = false,
     transcript = '',
     providerId = '',
     base = '',
     previousTranscript = '';
+  let phase: VoicePhase = 'idle';
+  let heardText = false;
+  let settingUpMicrophone = false;
+  const setPhase = (value: VoicePhase) => {
+    phase = value;
+    container.dataset.voicePhase = value;
+    options.onState();
+  };
   const finish = () => {
     recording = false;
-    starting = false;
     talk.classList.remove('recording');
     talkLabel.textContent = 'Hold to talk';
     talk.setAttribute('aria-label', 'Hold to talk');
@@ -194,10 +288,11 @@ export function mountVoice(
     select.disabled = false;
     language.disabled = false;
     install.disabled = installing;
-    options.onState();
+    setPhase('idle');
   };
   const start = (requestedMode: RecordingMode = 'hold') => {
-    if (recording || !options.canStart()) return;
+    if (recording || settingUpMicrophone || installing || !options.canStart())
+      return;
     if (select.value === 'browser' && !consent.checked) {
       options.notice(
         'Open Settings and allow browser audio processing before using that provider.',
@@ -214,14 +309,9 @@ export function mountVoice(
     const currentSession = ++session;
     mode = requestedMode;
     recording = true;
-    starting = true;
+    heardText = false;
     talk.classList.add('recording');
-    talkLabel.textContent =
-      mode === 'hands-free'
-        ? 'Listening…'
-        : mode === 'middle'
-          ? 'Release middle button'
-          : 'Release to finish';
+    talkLabel.textContent = 'Starting microphone…';
     talk.setAttribute('aria-label', talkLabel.textContent);
     talk.setAttribute('aria-pressed', 'true');
     toggle.classList.add('recording');
@@ -233,18 +323,15 @@ export function mountVoice(
     select.disabled = true;
     language.disabled = true;
     install.disabled = true;
-    options.onState();
+    setPhase('starting');
     options.notice(
-      mode === 'hands-free'
-        ? 'Listening. Click Stop when you’re done.'
-        : mode === 'middle'
-          ? 'Listening. Release the middle mouse button to finish.'
-          : 'Listening. Release to finish.',
+      'Preparing the microphone. Wait for Listening before speaking.',
     );
     void provider
       .start(
         (text) => {
           if (currentSession !== session) return;
+          heardText ||= Boolean(text.trim());
           transcript = [previousTranscript, text].filter(Boolean).join(' ');
           options.setDraft(base + (base && text ? '\n' : '') + text);
         },
@@ -252,7 +339,12 @@ export function mountVoice(
           if (currentSession !== session) return;
           session++;
           finish();
-          options.notice('Recording finished. Review your note before saving.');
+          options.notice(
+            heardText
+              ? 'Recording finished. Review your note before saving.'
+              : 'No words were captured. Enable microphone, check your input device, then wait for Listening before speaking.',
+          );
+          enableMicrophone.hidden = heardText;
         },
         (error) => {
           if (currentSession !== session) return;
@@ -260,25 +352,80 @@ export function mountVoice(
           provider?.abort();
           finish();
           options.notice(error);
+          enableMicrophone.hidden = false;
+        },
+        () => {
+          if (currentSession !== session || phase !== 'starting') return;
+          enableMicrophone.hidden = true;
+          talkLabel.textContent =
+            mode === 'hands-free'
+              ? 'Listening…'
+              : mode === 'middle'
+                ? 'Release middle button'
+                : 'Release to finish';
+          talk.setAttribute('aria-label', talkLabel.textContent);
+          setPhase('listening');
+          options.notice(
+            mode === 'hands-free'
+              ? 'Listening. Click Stop when you’re done.'
+              : 'Listening. Release to finish.',
+          );
         },
       )
-      .then(() => {
-        if (currentSession === session) starting = false;
-      })
       .catch((error: unknown) => {
         if (currentSession !== session) return;
         session++;
         options.notice(error instanceof Error ? error.message : String(error));
+        enableMicrophone.hidden = !(error instanceof MicrophoneSetupError);
         finish();
       });
   };
   const stop = () => {
     if (!recording) return;
-    provider?.stop();
-    if (starting) {
+    if (phase === 'finishing') return;
+    const pending = provider?.stop();
+    if (!recording) return;
+    if (!pending) {
       session++;
       finish();
       options.notice('Recording canceled. Your draft is still here.');
+    } else {
+      talkLabel.textContent = 'Finishing…';
+      talk.setAttribute('aria-label', 'Finishing recording');
+      setPhase('finishing');
+      options.notice('Finishing your transcript…');
+    }
+  };
+  enableMicrophone.onclick = async () => {
+    if (recording || settingUpMicrophone) return;
+    settingUpMicrophone = true;
+    enableMicrophone.disabled = true;
+    options.notice(
+      'Allow microphone access in the browser prompt. You do not need to hold a button.',
+    );
+    try {
+      if (!navigator.mediaDevices?.getUserMedia)
+        throw new Error(
+          'This page cannot access the microphone. Use HTTPS or localhost in a supported browser.',
+        );
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // This only establishes permission; do not keep a setup microphone open.
+      stream.getTracks().forEach((track) => track.stop());
+      enableMicrophone.hidden = true;
+      options.notice(
+        'Microphone enabled. Hold the button or middle mouse, wait for Listening, then speak.',
+      );
+    } catch (error) {
+      options.notice(
+        error instanceof Error && error.name === 'NotAllowedError'
+          ? 'Microphone access is blocked. Allow microphone access for this page in browser site settings and check Windows microphone privacy settings.'
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      );
+    } finally {
+      settingUpMicrophone = false;
+      enableMicrophone.disabled = false;
     }
   };
   talk.addEventListener('pointerdown', (event) => {
@@ -386,6 +533,9 @@ export function mountVoice(
       });
   };
   return {
+    get phase() {
+      return phase;
+    },
     get recording() {
       return recording;
     },

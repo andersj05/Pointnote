@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   BrowserSpeechProvider,
   mountVoice,
@@ -14,7 +14,8 @@ class FakeRecognition implements Recognizer {
   onresult: Recognizer['onresult'] = null;
   onerror: Recognizer['onerror'] = null;
   onend: Recognizer['onend'] = null;
-  start = vi.fn();
+  start = vi.fn(() => this.onaudiostart?.());
+  onaudiostart: Recognizer['onaudiostart'] = null;
   stop = vi.fn(() => this.onend?.());
   abort = vi.fn(() => this.onend?.());
   constructor() {
@@ -22,6 +23,77 @@ class FakeRecognition implements Recognizer {
   }
 }
 describe('replaceable speech provider', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+  it('shows listening only after audio capture starts and retains final words after release', async () => {
+    class DelayedRecognition extends FakeRecognition {
+      start = vi.fn();
+      stop = vi.fn();
+    }
+    Object.assign(globalThis, { SpeechRecognition: DelayedRecognition });
+    let draft = 'Written context';
+    const voice = mountVoice(document.createElement('div'), {
+      getDraft: () => draft,
+      setDraft: (value) => {
+        draft = value;
+      },
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    voice.start('middle');
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
+    expect(voice.phase).toBe('starting');
+    FakeRecognition.latest.onaudiostart?.();
+    expect(voice.phase).toBe('listening');
+    voice.release('middle');
+    expect(voice.phase).toBe('finishing');
+    FakeRecognition.latest.onresult?.({
+      results: [
+        { isFinal: true, 0: { transcript: 'Final words after release' } },
+      ],
+    });
+    expect(draft).toBe('Written context\nFinal words after release');
+    FakeRecognition.latest.onend?.();
+    expect(voice.recording).toBe(false);
+    voice.reset();
+  });
+  it('aborts stalled startup with an actionable error', async () => {
+    vi.useFakeTimers();
+    class SilentRecognition extends FakeRecognition {
+      start = vi.fn();
+    }
+    const provider = new BrowserSpeechProvider(
+      true,
+      'en-US',
+      () => SilentRecognition,
+    );
+    const error = vi.fn();
+    await provider.start(vi.fn(), vi.fn(), error);
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('microphone did not start'),
+    );
+    expect(FakeRecognition.latest.abort).toHaveBeenCalled();
+  });
+  it('never starts recognition when microphone permission needs setup', async () => {
+    const provider = new BrowserSpeechProvider(
+      true,
+      'en-US',
+      () => FakeRecognition,
+      async () => {
+        throw new Error('Enable microphone');
+      },
+    );
+    await expect(provider.start(vi.fn(), vi.fn(), vi.fn())).rejects.toThrow(
+      'Enable microphone',
+    );
+    expect(FakeRecognition.latest.start).not.toHaveBeenCalled();
+  });
   it('keeps hands-free recording alive when a permission prompt takes focus', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     const voice = mountVoice(document.createElement('div'), {
@@ -32,7 +104,9 @@ describe('replaceable speech provider', () => {
       notice: () => {},
     });
     voice.start('hands-free');
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     window.dispatchEvent(new Event('blur'));
     expect(FakeRecognition.latest.stop).not.toHaveBeenCalled();
     expect(voice.recording).toBe(true);
@@ -128,8 +202,9 @@ describe('replaceable speech provider', () => {
       notice: () => {},
     });
     voice.start('middle');
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     const recognition = FakeRecognition.latest;
     recognition.onresult?.({
       results: [{ isFinal: true, 0: { transcript: 'Original transcript' } }],
@@ -153,15 +228,17 @@ describe('replaceable speech provider', () => {
       notice: () => {},
     });
     voice.start('middle');
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     voice.release('hold');
     expect(voice.middleRecording).toBe(true);
     voice.release('middle');
     expect(voice.recording).toBe(false);
     voice.start('hands-free');
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     voice.start('middle');
     voice.release('middle');
     expect(voice.recording).toBe(true);
@@ -234,8 +311,9 @@ describe('replaceable speech provider', () => {
     const button =
       container.querySelector<HTMLButtonElement>('[data-voice-talk]')!;
     button.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     FakeRecognition.latest.onresult?.({
       results: [{ isFinal: true, 0: { transcript: 'this feel clutter' } }],
     });
@@ -266,8 +344,9 @@ describe('replaceable speech provider', () => {
       notice: () => {},
     });
     container.querySelector<HTMLButtonElement>('[data-voice-toggle]')!.click();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     const recognition = FakeRecognition.latest;
     expect(voice.recording).toBe(true);
     voice.reset();
@@ -278,7 +357,7 @@ describe('replaceable speech provider', () => {
     expect(draft).toBe('A new draft');
     expect(voice.input()).toEqual({ method: 'typed' });
   });
-  it('requires fresh consent for a remembered browser speech provider', () => {
+  it('requires fresh consent for a remembered browser speech provider', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     const container = document.createElement('div');
     const settings = document.createElement('div');
@@ -302,6 +381,9 @@ describe('replaceable speech provider', () => {
     )!;
     consent.checked = true;
     container.querySelector<HTMLButtonElement>('[data-voice-toggle]')!.click();
+    await vi.waitFor(() =>
+      expect(FakeRecognition.latest.start).toHaveBeenCalled(),
+    );
     expect(voice.recording).toBe(true);
     expect(FakeRecognition.latest.processLocally).toBe(false);
     voice.stop();
