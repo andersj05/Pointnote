@@ -3,7 +3,8 @@ import { bounds, captureTarget, pageContext, safeText } from './context';
 import { matchTarget } from './anchor';
 import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
-import { createBundle } from './export';
+import { createBundle, createMarkdown } from './export';
+import { copyText } from './clipboard';
 import { mountVoice } from './voice';
 import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
@@ -74,7 +75,7 @@ async function mount() {
         </div>
       </section>
       <div class="notice" role="status" aria-live="polite" hidden></div>
-      <footer class="footer"><button class="export" data-action="export" disabled>${icon('download')}<span>Export feedback</span><span class="export-format">ZIP</span></button></footer>
+      <footer class="footer"><div class="export-menu" id="export-menu" role="menu" aria-label="Export format" hidden><button type="button" role="menuitem" data-export="copy">Copy Markdown to clipboard<span>Paste feedback and target context into a chat</span></button><button type="button" role="menuitem" data-export="markdown">Save Markdown file<span>A single .md file for quick feedback</span></button><button type="button" role="menuitem" data-export="zip">Save ZIP file<span>Markdown, JSON, and screenshots</span></button></div><button class="export" data-action="export" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu" disabled>${icon('download')}<span>Export feedback</span><span class="export-format" aria-hidden="true">⌃</span></button></footer>
       <button class="resize-handle resize-left" data-panel-handle="resize-left" aria-label="Resize panel from left" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button><button class="resize-handle" data-panel-handle="resize" aria-label="Resize panel" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button>
     </aside>`;
   root.append(shell);
@@ -90,6 +91,7 @@ async function mount() {
     reviewing = true,
     busy = false;
   let transitioning = false;
+  let exportSnapshot: Annotation[] = [];
   let settingsOpen = false,
     minimized = false;
   let page: PageContext = await pageContext();
@@ -209,7 +211,9 @@ async function mount() {
       !selected.length ||
       (!reattaching && !feedback.value.trim());
     $<HTMLButtonElement>('[data-action=export]').disabled =
-      locked || !annotations.length;
+      locked ||
+      (!annotations.length &&
+        !(selected.length && (feedback.value.trim() || voice.recording)));
     $<HTMLButtonElement>('[data-action=parent]').disabled =
       locked ||
       !selected[0]?.parentElement ||
@@ -555,6 +559,7 @@ async function mount() {
     return opened && reviewing && !settingsOpen && !minimized;
   }
   function showSettings(value: boolean) {
+    closeExport();
     voice.stop();
     settingsOpen = value;
     $('.settings-page').hidden = !value;
@@ -566,6 +571,7 @@ async function mount() {
     else $('[data-action=settings]').focus();
   }
   function setMinimized(value: boolean) {
+    closeExport();
     voice.stop();
     minimized = value;
     panel.classList.toggle('minimized', value);
@@ -581,6 +587,7 @@ async function mount() {
     button.focus();
   }
   function setOpened(value: boolean) {
+    closeExport();
     if (!value) voice.stop();
     opened = value;
     panel.hidden = !value;
@@ -593,6 +600,10 @@ async function mount() {
   function revisit(a: Annotation) {
     act(() =>
       changeSelection(() => {
+        if (reattaching) {
+          feedback.value = '';
+          voice.reset();
+        }
         selectedId = a.id;
         reattaching = null;
         quote = a.targets[0].range;
@@ -616,7 +627,7 @@ async function mount() {
       }),
     );
   }
-  async function changeSelection(change: () => void) {
+  async function changeSelection(change: () => void | Promise<void>) {
     if (busy || transitioning) return;
     transitioning = true;
     updateControls();
@@ -628,7 +639,7 @@ async function mount() {
         feedback.value = '';
         voice.reset();
       }
-      change();
+      await change();
     } finally {
       transitioning = false;
       updateControls();
@@ -757,7 +768,8 @@ async function mount() {
       if (!opened) return;
       if (event.key === 'Escape') {
         if (busy || transitioning) return;
-        if (voice.recording) voice.stop();
+        if (!$('.export-menu').hidden) closeExport(true);
+        else if (voice.recording) voice.stop();
         else if (settingsOpen && !minimized) showSettings(false);
         else if (minimized) setMinimized(false);
         else if (selected.length || reattaching) {
@@ -811,6 +823,7 @@ async function mount() {
   $('.note-filter').addEventListener('change', renderNotes);
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-mode]'))
     button.onclick = () => {
+      if (button.dataset.mode === selectionMode) return;
       act(() =>
         changeSelection(() => {
           selectionMode = button.dataset.mode as typeof selectionMode;
@@ -971,31 +984,114 @@ async function mount() {
       if (matchAgain) scheduleRefresh();
     }
   }
-  $('[data-action=export]').onclick = () =>
-    act(async () => {
-      if (busy) return;
-      while (matching) await new Promise((resolve) => setTimeout(resolve, 20));
-      annotations = await rpc<Annotation[]>({
-        type: 'LIST',
-        pageKey: page.key,
+  function closeExport(restoreFocus = false) {
+    $('.export-menu').hidden = true;
+    $('[data-action=export]').setAttribute('aria-expanded', 'false');
+    if (restoreFocus) $('[data-action=export]').focus();
+  }
+  $('[data-action=export]').onclick = () => {
+    if (!$('.export-menu').hidden) {
+      closeExport();
+      return;
+    }
+    act(() =>
+      changeSelection(async () => {
+        while (matching)
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        if ((await pageContext()).key !== page.key) {
+          setNotice('The page changed. Reopen export after the notes load.');
+          return;
+        }
+        annotations = await rpc<Annotation[]>({
+          type: 'LIST',
+          pageKey: page.key,
+        });
+        while (matching)
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        await reconcile();
+        exportSnapshot = structuredClone(annotations);
+        if (!exportSnapshot.length) return;
+        $('.export-menu').hidden = false;
+        $('[data-action=export]').setAttribute('aria-expanded', 'true');
+        $('[data-export=copy]').focus();
+      }),
+    );
+  };
+  const exportItems = [
+    ...root.querySelectorAll<HTMLButtonElement>('[data-export]'),
+  ];
+  $('.export-menu').addEventListener('keydown', (event) => {
+    const index = exportItems.indexOf(root.activeElement as HTMLButtonElement);
+    const next =
+      event.key === 'ArrowDown'
+        ? (index + 1) % exportItems.length
+        : event.key === 'ArrowUp'
+          ? (index + exportItems.length - 1) % exportItems.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? exportItems.length - 1
+              : -1;
+    if (next >= 0) {
+      event.preventDefault();
+      exportItems[next].focus();
+    } else if (event.key === 'Tab') closeExport(true);
+  });
+  window.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!event.composedPath().includes($('.footer'))) closeExport();
+    },
+    true,
+  );
+  $('.footer').addEventListener('focusout', (event) => {
+    if (!$('.footer').contains(event.relatedTarget as Node | null))
+      closeExport();
+  });
+  for (const button of exportItems)
+    button.onclick = () =>
+      act(async () => {
+        if (busy || transitioning || !exportSnapshot.length) return;
+        busy = true;
+        updateControls();
+        closeExport();
+        try {
+          const format = button.dataset.export;
+          if (format === 'copy') {
+            await copyText(createMarkdown(exportSnapshot), root);
+            setNotice('Markdown copied. Paste it into your chat.');
+          } else {
+            const zip = format === 'zip';
+            const blob = zip
+              ? new Blob([new Uint8Array(createBundle(exportSnapshot))], {
+                  type: 'application/zip',
+                })
+              : new Blob([createMarkdown(exportSnapshot)], {
+                  type: 'text/markdown;charset=utf-8',
+                });
+            const url = URL.createObjectURL(blob),
+              link = document.createElement('a');
+            link.href = url;
+            link.download =
+              'pointnote-feedback-' +
+              new Date().toISOString().slice(0, 10) +
+              (zip ? '.zip' : '.md');
+            panel.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+            setNotice(
+              zip
+                ? 'ZIP ready: feedback.md, feedback.json, and screenshots.'
+                : 'Markdown file ready. Attach it to your chat.',
+            );
+          }
+        } finally {
+          busy = false;
+          updateControls();
+          $('[data-action=export]').focus();
+        }
       });
-      while (matching) await new Promise((resolve) => setTimeout(resolve, 20));
-      await reconcile();
-      const bytes = createBundle(annotations),
-        blob = new Blob([new Uint8Array(bytes)], { type: 'application/zip' });
-      const url = URL.createObjectURL(blob),
-        a = document.createElement('a');
-      a.href = url;
-      a.download =
-        'pointnote-feedback-' + new Date().toISOString().slice(0, 10) + '.zip';
-      panel.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setNotice(
-        'Export ready: feedback.md, feedback.json, and screenshot files.',
-      );
-    });
   chrome.runtime.onMessage.addListener((message: { type: string }) => {
     if (message.type === 'TOGGLE' && !busy && !transitioning)
       setOpened(!opened);
@@ -1033,6 +1129,7 @@ async function mount() {
   window.addEventListener('resize', draw);
   setInterval(() => {
     if (location.href !== lastUrl && !busy && !transitioning) {
+      closeExport();
       voice.stop();
       lastUrl = location.href;
       selected = [];

@@ -729,10 +729,43 @@ h2 {
   margin: 5px 0;
 }
 .footer {
+  position: relative;
   padding: 8px 12px 12px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
   background: #fafbfa;
+}
+.export-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 8px;
+  right: 8px;
+  padding: 4px;
+  border: 1px solid #d8ddd8;
+  border-radius: 9px;
+  background: white;
+  box-shadow: 0 6px 24px #15201826;
+}
+.export-menu button {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  background: white;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 550;
+}
+.export-menu button:hover,
+.export-menu button:focus-visible {
+  background: #f0f6f2;
+}
+.export-menu button span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
 }
 .export {
   width: 100%;

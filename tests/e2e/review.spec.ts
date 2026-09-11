@@ -218,6 +218,7 @@ test('three report comments persist across reload and browser restart, export, a
   await expect(page.locator('.card')).toHaveCount(3);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const saved = await download;
   const exportPath = info.outputPath('feedback.zip');
   await saved.saveAs(exportPath);
@@ -280,6 +281,7 @@ test('localhost controls are blocked during review, normal when paused, with san
   await save(page, 'Give the note field more breathing room.', 2);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -377,6 +379,7 @@ test('multiple selection, precise text ranges, and editable voice transcripts', 
   await save(page, 'This needs more proof. Add a citation.', 3);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -421,6 +424,7 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
   await expect(page.locator('.status.missing')).toHaveCount(1);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -569,6 +573,7 @@ test('notes can be searched and filtered without changing the export, and keyboa
   await expect(page.locator('.card')).toHaveCount(1);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -995,6 +1000,7 @@ test('middle mouse records the selected target from anywhere and keeps an editab
   await save(page, 'Please cite the study supporting this claim.', 1);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -1213,4 +1219,174 @@ test('switching during recording waits for final words and saves to the original
     .locator('.panel')
     .screenshot({ path: info.outputPath('compact-notes.png') });
   await speech.close();
+});
+
+async function inContentWorld(page: Page, expression: string) {
+  const cdp = await context.newCDPSession(page);
+  const worlds: { id: number; origin: string }[] = [];
+  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+    worlds.push(world),
+  );
+  await cdp.send('Runtime.enable');
+  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
+  const result = await cdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  await cdp.detach();
+  expect(result.exceptionDetails).toBeUndefined();
+  return result.result.value;
+}
+
+test('failed autosave preserves the draft and target, and retry saves only once', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Do not lose this draft.');
+  await inContentWorld(
+    page,
+    `
+    globalThis.originalSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = (message, ...args) => message.type === 'PUT'
+      ? Promise.resolve({ ok: false, error: 'Simulated storage failure.' })
+      : globalThis.originalSendMessage(message, ...args);
+  `,
+  );
+  await select(page, '#retention-chart');
+  await expect(page.getByRole('status')).toContainText(
+    'Your draft and target have been kept',
+  );
+  await expect(draft).toHaveValue('Do not lose this draft.');
+  await expect(page.locator('.target-name')).toContainText('evidence-claim');
+  await expect(page.locator('.card')).toHaveCount(0);
+  await inContentWorld(
+    page,
+    'chrome.runtime.sendMessage = globalThis.originalSendMessage',
+  );
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(draft).toHaveValue('');
+  await expect(page.locator('.target-name')).toContainText('retention-chart');
+});
+
+test('export offers clipboard, standalone Markdown and ZIP, including the unsaved last note', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/frontend.html');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: 'http://127.0.0.1:4173',
+  });
+  await activate(page);
+  const exportButton = page.getByRole('button', { name: 'Export feedback' });
+  await expect(exportButton).toBeDisabled();
+  await select(page, 'textarea[aria-label="Private draft"]');
+  const words = '  Keep café and 🎯.\n```code\nExplain this field.  ';
+  await page.getByRole('textbox', { name: 'Your feedback' }).fill(words);
+  await exportButton.click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.getByRole('menuitem')).toHaveCount(3);
+  await expect(
+    page.getByRole('menuitem', { name: 'Copy Markdown to clipboard' }),
+  ).toBeFocused();
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('export-menu.png') });
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    page.getByRole('menuitem', { name: 'Save Markdown file' }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(exportButton).toBeFocused();
+  await exportButton.click();
+  await page
+    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Markdown copied');
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard.replaceAll('\r\n', '\n')).toContain(words);
+  expect(clipboard).not.toMatch(/!\[|data:image|feedback\.json/);
+  await exportButton.click();
+  const markdownDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Save Markdown file' }).click();
+  const markdownFile = await markdownDownload;
+  expect(markdownFile.suggestedFilename()).toMatch(/\.md$/);
+  const markdown = await readFile((await markdownFile.path())!, 'utf8');
+  expect(markdown).toContain(words);
+  expect(markdown).not.toMatch(/!\[|data:image|feedback\.json/);
+  expect(markdown).not.toContain('PRIVATE-DRAFT-789');
+  await exportButton.click();
+  const zipDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  const zipFile = await zipDownload;
+  expect(zipFile.suggestedFilename()).toMatch(/\.zip$/);
+  const files = unzipSync(
+    new Uint8Array(await readFile((await zipFile.path())!)),
+  );
+  const data = JSON.parse(strFromU8(files['feedback.json']));
+  expect(data.annotations).toHaveLength(1);
+  expect(data.annotations[0].originalComment).toBe(words);
+  expect(data.annotations[0].screenshot.status).toBe('available');
+  expect(files[data.annotations[0].screenshot.path]).toBeDefined();
+  expect(strFromU8(files['feedback.md'])).toContain('![Target in context]');
+});
+
+test('clipboard denial offers Markdown download without claiming success or losing notes', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Use the source.');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  await inContentWorld(
+    page,
+    `
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('Denied')) } });
+    document.execCommand = () => false;
+  `,
+  );
+  await page
+    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .click();
+  await expect(page.getByRole('status')).toContainText(
+    'Choose Save Markdown file instead',
+  );
+  await expect(page.locator('.card')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Save Markdown file' }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.md$/);
+});
+
+test('clipboard fallback copies Markdown when the page has no Clipboard API', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: 'http://127.0.0.1:4173',
+  });
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Copy through the fallback.');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  await inContentWorld(
+    page,
+    "Object.defineProperty(navigator, 'clipboard', { value: undefined })",
+  );
+  await page
+    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Markdown copied');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+    'Copy through the fallback.',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Export feedback' }),
+  ).toBeFocused();
 });

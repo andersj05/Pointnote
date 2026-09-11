@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto';
 import { captureTarget, safeUrl } from '../../src/context';
 import { matchTarget } from '../../src/anchor';
-import { createBundle } from '../../src/export';
+import { createBundle, createMarkdown } from '../../src/export';
 import {
   deleteAnnotation,
   listAnnotations,
@@ -133,6 +133,41 @@ describe('conservative reattachment', () => {
   });
 });
 describe('local storage and export', () => {
+  it('exports standalone Markdown with exact words and history without broken image or JSON references', () => {
+    const a = annotation();
+    a.originalComment =
+      '  Keep Unicode: café 🎯.\n```example\nMy exact words.  ';
+    a.targets[0].textTruncated = true;
+    a.screenshot = {
+      status: 'available',
+      path: 'screenshots/current.png',
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      capturedAt: a.createdAt,
+      width: 100,
+      height: 80,
+      redactedRegions: 1,
+      note: 'Forms masked.',
+    };
+    const previous = annotation();
+    previous.targets[0].locator.cssSelector = '#previous-target';
+    a.reattachments.push({
+      at: a.updatedAt,
+      page: previous.page,
+      targets: previous.targets,
+      screenshot: previous.screenshot,
+    });
+    const original = structuredClone(a);
+    const markdown = createMarkdown([a], new Date(a.createdAt));
+    expect(markdown).toContain(a.originalComment);
+    expect(markdown).toContain('````');
+    expect(markdown).toContain('Selected text (truncated)');
+    expect(markdown).toContain('Previous attachment 1');
+    expect(markdown).toContain('#previous-target');
+    expect(markdown).toContain('Capture permission denied.');
+    expect(markdown).toContain('image omitted');
+    expect(markdown).not.toMatch(/!\[|data:image|feedback\.json/);
+    expect(a).toEqual(original);
+  });
   it('stores three independent annotations and keeps page isolation', async () => {
     const a = annotation(),
       b = { ...annotation(), page: a.page },
