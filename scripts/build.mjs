@@ -36,3 +36,6 @@ if (process.argv.includes('--watch')) {
 } else {
   await Promise.all(configs.map((options) => build(options)));
 }
+console.info(
+  '\nFor an installed unpacked extension: click Reload on Pointnote in your browser’s Extensions page, then refresh reviewed pages. Rebuilding alone does not update the running extension.',
+);

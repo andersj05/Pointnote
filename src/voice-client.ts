@@ -1,12 +1,40 @@
 import type { TranscriptionProvider } from './speech-provider';
 
-export async function openVoiceSetup() {
-  const result = await chrome.runtime.sendMessage({
-    target: 'pointnote-voice',
-    action: 'setup',
-  });
-  if (!result?.ok)
-    throw new Error(result?.error || 'Could not open voice setup.');
+const reloadMessage =
+  'Pointnote needs to reload after an update. Open your browser’s Extensions page, click Reload on Pointnote, then refresh this page and try again. Your saved notes and settings will stay.';
+
+async function requestVoice(action: 'setup' | 'prepare') {
+  try {
+    const result = await chrome.runtime.sendMessage({
+      target: 'pointnote-voice',
+      action,
+    });
+    // Rebuilding an unpacked extension can leave its old worker running while
+    // newly opened pages receive the new content script. That worker does not
+    // understand voice requests until the extension itself is reloaded.
+    if (!result || /Unknown (?:voice )?request\.?$/i.test(result.error || ''))
+      throw new Error(reloadMessage);
+    if (!result.ok)
+      throw new Error(
+        result.error ||
+          (action === 'setup'
+            ? 'Could not open voice setup.'
+            : 'Could not prepare the microphone.'),
+      );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      /Extension context invalidated|Receiving end does not exist|Could not establish connection/i.test(
+        message,
+      )
+    )
+      throw new Error(reloadMessage);
+    throw error;
+  }
+}
+
+export function openVoiceSetup() {
+  return requestVoice('setup');
 }
 export class ExtensionSpeechProvider implements TranscriptionProvider {
   readonly id: string;
@@ -22,12 +50,7 @@ export class ExtensionSpeechProvider implements TranscriptionProvider {
     onError: (text: string) => void,
     onListening = () => {},
   ) {
-    const result = await chrome.runtime.sendMessage({
-      target: 'pointnote-voice',
-      action: 'prepare',
-    });
-    if (!result?.ok)
-      throw new Error(result?.error || 'Could not prepare the microphone.');
+    await requestVoice('prepare');
     if (this.released) {
       onEnd();
       return;

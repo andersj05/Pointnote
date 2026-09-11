@@ -21,6 +21,8 @@ npm run build
 
 After code changes, rebuild, click **Reload** on the extension card, and refresh the page. Keep the unpacked extension in the same folder to preserve its extension identity and local data.
 
+If **Set up voice** reports **Unknown request** or asks you to reload Pointnote, the page and extension background are running different builds. Open `chrome://extensions` (or `edge://extensions`), click **Reload** on Pointnote, then refresh the reviewed page and reopen Pointnote. Rebuilding or refreshing the page alone does not reload the extension background. Saved notes and settings are preserved.
+
 ## Try the included pages
 
 ```sh
