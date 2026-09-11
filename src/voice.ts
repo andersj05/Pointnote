@@ -38,6 +38,7 @@ export interface TranscriptionProvider {
   stop(): void;
   abort(): void;
 }
+type RecordingMode = 'hold' | 'middle' | 'hands-free';
 function browserRecognition(): RecognitionConstructor | undefined {
   const scope = globalThis as typeof globalThis & {
     SpeechRecognition?: RecognitionConstructor;
@@ -145,7 +146,7 @@ export function mountVoice(
     onPreferences?: (value: Pick<Preferences, 'provider' | 'language'>) => void;
   },
 ) {
-  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold the button or hold Space while focused">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div>`;
+  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
   if (!options.settings) container.append(settings);
   settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
@@ -165,19 +166,22 @@ export function mountVoice(
     '[data-voice-install]',
   )!;
   let provider: TranscriptionProvider | undefined;
-  let handsFree = false,
-    session = 0,
+  let mode: RecordingMode = 'hold';
+  let session = 0,
     installing = false;
   let recording = false,
+    starting = false,
     transcript = '',
     providerId = '',
     base = '',
     previousTranscript = '';
   const finish = () => {
     recording = false;
+    starting = false;
     talk.classList.remove('recording');
     talkLabel.textContent = 'Hold to talk';
     talk.setAttribute('aria-label', 'Hold to talk');
+    talk.setAttribute('aria-pressed', 'false');
     toggle.classList.remove('recording');
     toggle.innerHTML = icon('record');
     toggle.setAttribute('aria-label', 'Start hands-free recording');
@@ -189,7 +193,7 @@ export function mountVoice(
     install.disabled = installing;
     options.onState();
   };
-  const start = (isHandsFree = false) => {
+  const start = (requestedMode: RecordingMode = 'hold') => {
     if (recording || !options.canStart()) return;
     if (select.value === 'browser' && !consent.checked) {
       options.notice(
@@ -205,10 +209,18 @@ export function mountVoice(
     base = options.getDraft();
     previousTranscript = transcript;
     const currentSession = ++session;
-    handsFree = isHandsFree;
+    mode = requestedMode;
     recording = true;
+    starting = true;
     talk.classList.add('recording');
-    talkLabel.textContent = handsFree ? 'Listening…' : 'Release to finish';
+    talkLabel.textContent =
+      mode === 'hands-free'
+        ? 'Listening…'
+        : mode === 'middle'
+          ? 'Release middle button'
+          : 'Release to finish';
+    talk.setAttribute('aria-label', talkLabel.textContent);
+    talk.setAttribute('aria-pressed', 'true');
     toggle.classList.add('recording');
     toggle.innerHTML = icon('stop');
     toggle.setAttribute('aria-label', 'Stop recording');
@@ -220,9 +232,11 @@ export function mountVoice(
     install.disabled = true;
     options.onState();
     options.notice(
-      handsFree
+      mode === 'hands-free'
         ? 'Listening. Click Stop when you’re done.'
-        : 'Listening. Release to finish.',
+        : mode === 'middle'
+          ? 'Listening. Release the middle mouse button to finish.'
+          : 'Listening. Release to finish.',
     );
     void provider
       .start(
@@ -233,6 +247,7 @@ export function mountVoice(
         },
         () => {
           if (currentSession !== session) return;
+          session++;
           finish();
           options.notice('Recording finished. Review your note before saving.');
         },
@@ -244,14 +259,24 @@ export function mountVoice(
           options.notice(error);
         },
       )
+      .then(() => {
+        if (currentSession === session) starting = false;
+      })
       .catch((error: unknown) => {
         if (currentSession !== session) return;
+        session++;
         options.notice(error instanceof Error ? error.message : String(error));
         finish();
       });
   };
   const stop = () => {
-    if (recording) provider?.stop();
+    if (!recording) return;
+    provider?.stop();
+    if (starting) {
+      session++;
+      finish();
+      options.notice('Recording canceled. Your draft is still here.');
+    }
   };
   talk.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
@@ -259,12 +284,12 @@ export function mountVoice(
     talk.setPointerCapture(event.pointerId);
     start();
   });
-  const release = () => {
-    if (!handsFree) stop();
+  const release = (source: RecordingMode = 'hold') => {
+    if (mode === source) stop();
   };
-  talk.addEventListener('pointerup', release);
-  talk.addEventListener('pointercancel', release);
-  talk.addEventListener('lostpointercapture', release);
+  talk.addEventListener('pointerup', () => release());
+  talk.addEventListener('pointercancel', () => release());
+  talk.addEventListener('lostpointercapture', () => release());
   talk.addEventListener('keydown', (event) => {
     if ([' ', 'Enter'].includes(event.key)) {
       event.preventDefault();
@@ -277,10 +302,10 @@ export function mountVoice(
       release();
     }
   });
-  talk.addEventListener('blur', release);
+  talk.addEventListener('blur', () => release());
   toggle.onclick = () => {
     if (recording) stop();
-    else start(true);
+    else start('hands-free');
   };
   window.addEventListener('blur', stop);
   document.addEventListener('visibilitychange', () => {
@@ -343,6 +368,9 @@ export function mountVoice(
     get recording() {
       return recording;
     },
+    get middleRecording() {
+      return recording && mode === 'middle';
+    },
     input: () =>
       transcript
         ? { method: 'voice' as const, provider: providerId, transcript }
@@ -354,6 +382,8 @@ export function mountVoice(
       previousTranscript = '';
       finish();
     },
+    start,
+    release,
     stop,
   };
 }
