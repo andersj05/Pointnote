@@ -182,6 +182,147 @@ test.afterEach(async ({}, info) => {
     await context.close();
   }
 });
+
+test('handoff selects open Now notes and preserves exact instructions', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await save(page, 'Add evidence.', 1);
+  await select(page, '#retention-chart');
+  await save(page, 'Polish this later.', 2);
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page
+    .getByRole('combobox', { name: 'Priority: Polish this later.' })
+    .selectOption('later');
+  await expect(page.locator('.handoff-count')).toContainText(
+    '1 change selected',
+  );
+  await expect(
+    page.getByRole('checkbox', { name: 'Include: Polish this later.' }),
+  ).not.toBeChecked();
+  const instruction = '  Keep colors.\nOnly change the requested items.  ';
+  await page
+    .getByRole('textbox', { name: 'Instructions for this handoff' })
+    .fill(instruction);
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('handoff-preview.png') });
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(
+    new Uint8Array(await readFile((await (await download).path())!)),
+  );
+  const data = JSON.parse(strFromU8(files['feedback.json']));
+  expect(data.annotations.map((a: Annotation) => a.originalComment)).toEqual([
+    'Add evidence.',
+  ]);
+  expect(data.handoff.instructions).toBe(instruction);
+  await page.reload();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await expect(
+    page.getByRole('checkbox', { name: 'Include: Polish this later.' }),
+  ).not.toBeChecked();
+  await page.getByRole('button', { name: 'Clear selection' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Save ZIP file' }),
+  ).toBeDisabled();
+  await page
+    .getByRole('checkbox', { name: 'Include: Polish this later.' })
+    .check();
+  await expect(
+    page.getByRole('button', { name: 'Save ZIP file' }),
+  ).toBeEnabled();
+});
+
+test('review sessions collect pages explicitly and survive navigation', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await save(page, 'Existing page note.', 1);
+  await page
+    .getByRole('button', { name: 'Review sessions', exact: true })
+    .click();
+  await page
+    .getByRole('textbox', { name: 'New session name' })
+    .fill('Before launch');
+  await page
+    .getByRole('textbox', { name: 'Instructions for this session' })
+    .fill('Keep the colors.');
+  await page
+    .getByRole('button', { name: 'Start session', exact: true })
+    .click();
+  await expect(page.locator('.review-summary')).toHaveText(
+    '0 notes across 0 pages',
+  );
+  await page
+    .getByRole('button', { name: 'Add 1 existing page notes to this session' })
+    .click();
+  await expect(page.locator('.review-summary')).toHaveText(
+    '1 notes across 1 pages',
+  );
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page.goto('http://127.0.0.1:4173/frontend.html');
+  await expect(page.locator('.session-label')).toContainText('Before launch');
+  await select(page, '#complete-task');
+  await save(page, 'Clarify the action.', 1);
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await expect(page.locator('.handoff-count')).toHaveText(
+    '2 changes selected · 2 pages',
+  );
+  await expect(
+    page.getByRole('textbox', { name: 'Instructions for this handoff' }),
+  ).toHaveValue('Keep the colors.');
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('session-handoff.png') });
+});
+
+test('check changes preserves original evidence and exports reviewer follow-up', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await save(page, 'Original request stays exact.', 1);
+  await page
+    .getByRole('button', { name: 'Check changes', exact: true })
+    .click();
+  await expect(
+    page.getByRole('img', {
+      name: 'Original page with the feedback target outlined',
+    }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Locate current target' }).click();
+  await expect(page.locator('.outline')).toHaveCount(1);
+  await page
+    .getByRole('textbox', { name: 'Follow-up for another pass' })
+    .fill('The sample size is still missing.');
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('check-changes.png') });
+  await page
+    .getByRole('button', { name: 'Needs another pass', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Prepare handoff', exact: true })
+    .click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save Markdown file' }).click();
+  const markdown = await readFile((await (await download).path())!, 'utf8');
+  expect(markdown).toContain('Original request stays exact.');
+  expect(markdown).toContain('The sample size is still missing.');
+  await page
+    .getByRole('button', { name: 'Check changes', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Looks right', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await expect(page.locator('.card .status')).toHaveText('Accepted');
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await expect(page.locator('.handoff-count')).toContainText(
+    '0 changes selected',
+  );
+});
 test('three report comments persist across reload and browser restart, export, and reject changed targets', async ({}, info) => {
   let page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');
@@ -217,8 +358,8 @@ test('three report comments persist across reload and browser restart, export, a
   await activate(page);
   await expect(page.locator('.card')).toHaveCount(3);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const saved = await download;
   const exportPath = info.outputPath('feedback.zip');
   await saved.saveAs(exportPath);
@@ -227,7 +368,7 @@ test('three report comments persist across reload and browser restart, export, a
     annotations: Annotation[];
     schemaVersion: string;
   };
-  expect(data.schemaVersion).toBe('1.0.0');
+  expect(data.schemaVersion).toBe('1.1.0');
   expect(data.annotations).toHaveLength(3);
   expect(data.annotations.map((a) => a.targets[0].locator.id)).toEqual([
     'evidence-claim',
@@ -280,8 +421,8 @@ test('localhost controls are blocked during review, normal when paused, with san
   await select(page, 'textarea[aria-label="Private draft"]');
   await save(page, 'Give the note field more breathing room.', 2);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -378,8 +519,8 @@ test('multiple selection, precise text ranges, and editable voice transcripts', 
   await page.keyboard.up('Space');
   await save(page, 'This needs more proof. Add a citation.', 3);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -421,8 +562,9 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
   });
   await expect(page.locator('.status.missing')).toHaveCount(1);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page.getByRole('button', { name: 'Select all', exact: true }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -570,8 +712,9 @@ test('notes can be searched and filtered without changing the export, and keyboa
   await page.getByRole('searchbox', { name: 'Search notes' }).fill('source');
   await expect(page.locator('.card')).toHaveCount(1);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page.getByRole('button', { name: 'Select all', exact: true }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -997,8 +1140,8 @@ test('middle mouse records the selected target from anywhere and keeps an editab
   await page.mouse.up({ button: 'middle' });
   await save(page, 'Please cite the study supporting this claim.', 1);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -1278,30 +1421,28 @@ test('export offers clipboard, standalone Markdown and ZIP, including the unsave
     origin: 'http://127.0.0.1:4173',
   });
   await activate(page);
-  const exportButton = page.getByRole('button', { name: 'Export feedback' });
+  const exportButton = page.getByRole('button', { name: 'Prepare handoff' });
   await expect(exportButton).toBeDisabled();
   await select(page, 'textarea[aria-label="Private draft"]');
   const words = '  Keep café and 🎯.\n```code\nExplain this field.  ';
   await page.getByRole('textbox', { name: 'Your feedback' }).fill(words);
   await exportButton.click();
   await expect(page.locator('.card')).toHaveCount(1);
-  await expect(page.getByRole('menuitem')).toHaveCount(3);
+  await expect(page.locator('.handoff-count')).toHaveText(
+    '1 change selected · 1 pages',
+  );
   await expect(
-    page.getByRole('menuitem', { name: 'Copy Markdown to clipboard' }),
+    page.getByRole('heading', { name: 'Prepare handoff' }),
   ).toBeFocused();
   await page
     .locator('.panel')
     .screenshot({ path: info.outputPath('export-menu.png') });
-  await page.keyboard.press('ArrowDown');
-  await expect(
-    page.getByRole('menuitem', { name: 'Save Markdown file' }),
-  ).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(page.locator('.review-page')).toBeHidden();
   await expect(exportButton).toBeFocused();
   await exportButton.click();
   await page
-    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .getByRole('button', { name: 'Copy Markdown to clipboard' })
     .click();
   await expect(page.getByRole('status')).toContainText('Markdown copied');
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
@@ -1311,7 +1452,7 @@ test('export offers clipboard, standalone Markdown and ZIP, including the unsave
   );
   await exportButton.click();
   const markdownDownload = page.waitForEvent('download');
-  await page.getByRole('menuitem', { name: 'Save Markdown file' }).click();
+  await page.getByRole('button', { name: 'Save Markdown file' }).click();
   const markdownFile = await markdownDownload;
   expect(markdownFile.suggestedFilename()).toMatch(/\.md$/);
   const markdown = await readFile((await markdownFile.path())!, 'utf8');
@@ -1322,7 +1463,7 @@ test('export offers clipboard, standalone Markdown and ZIP, including the unsave
   expect(markdown).not.toContain('PRIVATE-DRAFT-789');
   await exportButton.click();
   const zipDownload = page.waitForEvent('download');
-  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
   const zipFile = await zipDownload;
   expect(zipFile.suggestedFilename()).toMatch(/\.zip$/);
   const files = unzipSync(
@@ -1344,7 +1485,7 @@ test('clipboard denial offers Markdown download without claiming success or losi
   await page
     .getByRole('textbox', { name: 'Your feedback' })
     .fill('Use the source.');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
   await inContentWorld(
     page,
     `
@@ -1353,15 +1494,14 @@ test('clipboard denial offers Markdown download without claiming success or losi
   `,
   );
   await page
-    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .getByRole('button', { name: 'Copy Markdown to clipboard' })
     .click();
   await expect(page.getByRole('status')).toContainText(
     'Choose Save Markdown file instead',
   );
   await expect(page.locator('.card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Export feedback' }).click();
   const download = page.waitForEvent('download');
-  await page.getByRole('menuitem', { name: 'Save Markdown file' }).click();
+  await page.getByRole('button', { name: 'Save Markdown file' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.md$/);
 });
 
@@ -1376,20 +1516,20 @@ test('clipboard fallback copies Markdown when the page has no Clipboard API', as
   await page
     .getByRole('textbox', { name: 'Your feedback' })
     .fill('Copy through the fallback.');
-  await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
   await inContentWorld(
     page,
     "Object.defineProperty(navigator, 'clipboard', { value: undefined })",
   );
   await page
-    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .getByRole('button', { name: 'Copy Markdown to clipboard' })
     .click();
   await expect(page.getByRole('status')).toContainText('Markdown copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     'Copy through the fallback.',
   );
   await expect(
-    page.getByRole('button', { name: 'Export feedback' }),
+    page.getByRole('button', { name: 'Prepare handoff' }),
   ).toBeFocused();
 });
 

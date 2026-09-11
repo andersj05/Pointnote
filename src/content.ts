@@ -3,8 +3,7 @@ import { bounds, captureTarget, pageContext, safeText } from './context';
 import { matchTarget } from './anchor';
 import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
-import { createBundle, createMarkdown } from './export';
-import { copyText } from './clipboard';
+import { mountReviewWorkspace } from './review-workspace';
 import { mountVoice } from './voice';
 import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
@@ -50,6 +49,7 @@ async function mount() {
       </header>
       <div class="clear-page-confirmation" role="group" aria-label="Clear page notes" hidden><p class="clear-page-prompt"></p><div><button class="secondary" data-action="keep-notes">Cancel</button><button class="secondary danger" data-action="confirm-clear-page">Delete notes</button></div></div>
       <div class="workspace">
+        <div class="session-bar"><span class="session-label">This page</span><button class="quiet" data-action="sessions">Review sessions</button></div>
         <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
           <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
@@ -76,7 +76,7 @@ async function mount() {
         </div>
       </section>
       <div class="notice" role="status" aria-live="polite" hidden></div>
-      <footer class="footer"><div class="export-menu" id="export-menu" role="menu" aria-label="Export format" hidden><button type="button" role="menuitem" data-export="copy">Copy Markdown to clipboard<span>Paste feedback and target context into a chat</span></button><button type="button" role="menuitem" data-export="markdown">Save Markdown file<span>A single .md file for quick feedback</span></button><button type="button" role="menuitem" data-export="zip">Save ZIP file<span>Markdown, JSON, and screenshots</span></button></div><button class="export" data-action="export" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu" disabled>${icon('download')}<span>Export feedback</span><span class="export-format" aria-hidden="true">⌃</span></button></footer>
+      <footer class="footer"><button class="export" data-action="export" disabled>${icon('download')}<span>Prepare handoff</span></button><button class="quiet check-changes" data-action="check-changes" disabled>Check changes</button></footer>
       <button class="resize-handle resize-left" data-panel-handle="resize-left" aria-label="Resize panel from left" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button><button class="resize-handle" data-panel-handle="resize" aria-label="Resize panel" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button>
     </aside>`;
   root.append(shell);
@@ -92,7 +92,8 @@ async function mount() {
     reviewing = true,
     busy = false;
   let transitioning = false;
-  let exportSnapshot: Annotation[] = [];
+  let reviews: ReturnType<typeof mountReviewWorkspace> | undefined;
+  let reviewOpen = false;
   let clearPageKey: string | undefined;
   let settingsOpen = false,
     minimized = false;
@@ -162,6 +163,7 @@ async function mount() {
         !transitioning &&
         !reattaching &&
         !settingsOpen &&
+        !reviewOpen &&
         !minimized &&
         selected.length > 0
       );
@@ -224,7 +226,11 @@ async function mount() {
     $<HTMLButtonElement>('[data-action=export]').disabled =
       locked ||
       (!annotations.length &&
+        !reviews?.hasNotes &&
         !(selected.length && (feedback.value.trim() || voice.recording)));
+    $<HTMLButtonElement>('[data-action=sessions]').disabled = locked;
+    $<HTMLButtonElement>('[data-action=check-changes]').disabled =
+      locked || (!annotations.length && !reviews?.hasNotes);
     $<HTMLButtonElement>('[data-action=parent]').disabled =
       locked ||
       !selected[0]?.parentElement ||
@@ -397,7 +403,11 @@ async function mount() {
       status.className =
         'status' + (a.status === 'needs-reattachment' ? ' missing' : '');
       status.textContent =
-        a.status === 'needs-reattachment' ? 'Reattach' : a.status;
+        a.status === 'needs-reattachment'
+          ? 'Reattach'
+          : a.review?.outcome === 'accepted'
+            ? 'Accepted'
+            : a.status;
       status.hidden = a.status === 'open';
       const comment = document.createElement('p');
       comment.className = 'comment';
@@ -427,7 +437,29 @@ async function mount() {
       summary.setAttribute('aria-label', 'Details for note ' + (i + 1));
       const detailActions = document.createElement('div');
       detailActions.className = 'detail-actions';
-      details.append(summary, targetDescription, imageState, detailActions);
+      const priority = document.createElement('select');
+      priority.setAttribute('aria-label', 'Priority for note ' + (i + 1));
+      priority.innerHTML =
+        '<option value="now">Now</option><option value="later">Later</option>';
+      priority.value = a.priority || 'now';
+      priority.onchange = () =>
+        act(async () => {
+          const updated = await rpc<Annotation>({
+            type: 'PATCH_REVIEW',
+            id: a.id,
+            patch: { priority: priority.value as 'now' | 'later' },
+          });
+          Object.assign(a, updated);
+          renderNotes();
+          await reviews?.refreshSummary();
+        });
+      details.append(
+        summary,
+        targetDescription,
+        imageState,
+        priority,
+        detailActions,
+      );
       actions.append(title);
       const button = (text: string, fn: () => void, parent = actions) => {
         const b = document.createElement('button');
@@ -441,13 +473,15 @@ async function mount() {
       };
       button(a.resolution === 'addressed' ? 'Reopen' : 'Mark addressed', () =>
         act(async () => {
-          a.resolution = a.resolution === 'addressed' ? 'open' : 'addressed';
-          a.status =
-            a.attachment.state === 'attached'
-              ? a.resolution
-              : 'needs-reattachment';
-          a.updatedAt = new Date().toISOString();
-          await rpc({ type: 'PUT', annotation: a });
+          const updated = await rpc<Annotation>({
+            type: 'PATCH_REVIEW',
+            id: a.id,
+            patch: {
+              resolution: a.resolution === 'addressed' ? 'open' : 'addressed',
+            },
+          });
+          Object.assign(a, updated);
+          await reviews?.refreshSummary();
           renderNotes();
         }),
       );
@@ -533,7 +567,12 @@ async function mount() {
           a.attachment = { state, reason, checkedAt: new Date().toISOString() };
           a.status = state === 'attached' ? a.resolution : 'needs-reattachment';
           a.updatedAt = new Date().toISOString();
-          await rpc({ type: 'PUT', annotation: a });
+          const updated = await rpc<Annotation>({
+            type: 'PATCH_ATTACHMENT',
+            id: a.id,
+            attachment: a.attachment,
+          });
+          Object.assign(a, updated);
         }
       }
       if (current === annotations) {
@@ -556,6 +595,7 @@ async function mount() {
     $('.page-title').title = page.title;
     annotations = await rpc<Annotation[]>({ type: 'LIST', pageKey: page.key });
     await reconcile();
+    await reviews?.refreshSummary();
   }
   function clear() {
     voice.reset();
@@ -581,7 +621,7 @@ async function mount() {
     draw();
   }
   function selectionActive() {
-    return opened && reviewing && !settingsOpen && !minimized;
+    return opened && reviewing && !settingsOpen && !reviewOpen && !minimized;
   }
   function showSettings(value: boolean) {
     closeClearPage();
@@ -800,7 +840,7 @@ async function mount() {
       if (event.key === 'Escape') {
         if (busy || transitioning) return;
         if (!$('.clear-page-confirmation').hidden) closeClearPage(true);
-        else if (!$('.export-menu').hidden) closeExport(true);
+        else if (reviews?.isOpen) closeExport(true);
         else if (voice.recording) voice.stop();
         else if (settingsOpen && !minimized) showSettings(false);
         else if (minimized) setMinimized(false);
@@ -817,6 +857,7 @@ async function mount() {
         event.key === 'Enter' &&
         (event.ctrlKey || event.metaKey) &&
         !settingsOpen &&
+        !reviewOpen &&
         !minimized
       ) {
         event.preventDefault();
@@ -970,6 +1011,9 @@ async function mount() {
         screenshot,
         status: old?.resolution ?? 'open',
         resolution: old?.resolution ?? 'open',
+        priority: old?.priority ?? 'now',
+        sessionId: old?.sessionId ?? reviews?.sessionId,
+        ...(old?.review ? { review: old.review } : {}),
         attachment: {
           state: 'attached',
           reason: old ? 'Explicitly reattached by user.' : 'Selected by user.',
@@ -989,6 +1033,7 @@ async function mount() {
           : [],
       };
       await rpc({ type: 'PUT', annotation });
+      await reviews?.refreshSummary();
       resolved.set(id, [...selected]);
       if (old)
         annotations = annotations.map((a) => (a.id === id ? annotation : a));
@@ -1020,8 +1065,7 @@ async function mount() {
     }
   }
   function closeExport(restoreFocus = false) {
-    $('.export-menu').hidden = true;
-    $('[data-action=export]').setAttribute('aria-expanded', 'false');
+    reviews?.close();
     if (restoreFocus) $('[data-action=export]').focus();
   }
   function closeClearPage(restoreFocus = false) {
@@ -1061,7 +1105,7 @@ async function mount() {
         await rpc({ type: 'DELETE_PAGE', pageKey: key });
         annotations = [];
         resolved.clear();
-        exportSnapshot = [];
+        await reviews?.refreshSummary();
         if (reattaching) {
           feedback.value = '';
           voice.reset();
@@ -1082,58 +1126,25 @@ async function mount() {
         else feedback.focus({ preventScroll: true });
       }
     });
-  $('[data-action=export]').onclick = () => {
-    if (!$('.export-menu').hidden) {
-      closeExport();
-      return;
-    }
+  const openReview = (view: 'sessions' | 'handoff' | 'check') =>
     act(() =>
       changeSelection(async () => {
         while (matching)
           await new Promise((resolve) => setTimeout(resolve, 20));
         if ((await pageContext()).key !== page.key) {
-          setNotice('The page changed. Reopen export after the notes load.');
+          setNotice('The page changed. Open the review after the notes load.');
           return;
         }
-        annotations = await rpc<Annotation[]>({
-          type: 'LIST',
-          pageKey: page.key,
-        });
-        while (matching)
-          await new Promise((resolve) => setTimeout(resolve, 20));
-        await reconcile();
-        exportSnapshot = structuredClone(annotations);
-        if (!exportSnapshot.length) return;
-        $('.export-menu').hidden = false;
-        $('[data-action=export]').setAttribute('aria-expanded', 'true');
-        $('[data-export=copy]').focus();
+        await load();
+        await reviews?.open(view);
       }),
     );
-  };
-  const exportItems = [
-    ...root.querySelectorAll<HTMLButtonElement>('[data-export]'),
-  ];
-  $('.export-menu').addEventListener('keydown', (event) => {
-    const index = exportItems.indexOf(root.activeElement as HTMLButtonElement);
-    const next =
-      event.key === 'ArrowDown'
-        ? (index + 1) % exportItems.length
-        : event.key === 'ArrowUp'
-          ? (index + exportItems.length - 1) % exportItems.length
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? exportItems.length - 1
-              : -1;
-    if (next >= 0) {
-      event.preventDefault();
-      exportItems[next].focus();
-    } else if (event.key === 'Tab') closeExport(true);
-  });
+  $('[data-action=export]').onclick = () => openReview('handoff');
+  $('[data-action=sessions]').onclick = () => openReview('sessions');
+  $('[data-action=check-changes]').onclick = () => openReview('check');
   window.addEventListener(
     'pointerdown',
     (event) => {
-      if (!event.composedPath().includes($('.footer'))) closeExport();
       if (
         !busy &&
         !event.composedPath().includes($('.clear-page-confirmation')) &&
@@ -1143,55 +1154,6 @@ async function mount() {
     },
     true,
   );
-  $('.footer').addEventListener('focusout', (event) => {
-    if (!$('.footer').contains(event.relatedTarget as Node | null))
-      closeExport();
-  });
-  for (const button of exportItems)
-    button.onclick = () =>
-      act(async () => {
-        if (busy || transitioning || !exportSnapshot.length) return;
-        busy = true;
-        updateControls();
-        closeExport();
-        try {
-          const format = button.dataset.export;
-          if (format === 'copy') {
-            await copyText(createMarkdown(exportSnapshot), root);
-            setNotice('Markdown copied.', true);
-          } else {
-            const zip = format === 'zip';
-            const blob = zip
-              ? new Blob([new Uint8Array(createBundle(exportSnapshot))], {
-                  type: 'application/zip',
-                })
-              : new Blob([createMarkdown(exportSnapshot)], {
-                  type: 'text/markdown;charset=utf-8',
-                });
-            const url = URL.createObjectURL(blob),
-              link = document.createElement('a');
-            link.href = url;
-            link.download =
-              'pointnote-feedback-' +
-              new Date().toISOString().slice(0, 10) +
-              (zip ? '.zip' : '.md');
-            panel.append(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 60000);
-            setNotice(
-              zip
-                ? 'ZIP ready: feedback.md, feedback.json, and screenshots.'
-                : 'Markdown file ready.',
-              true,
-            );
-          }
-        } finally {
-          busy = false;
-          updateControls();
-          $('[data-action=export]').focus();
-        }
-      });
   chrome.runtime.onMessage.addListener((message: { type: string }) => {
     if (message.type === 'TOGGLE' && !busy && !transitioning)
       setOpened(!opened);
@@ -1244,6 +1206,21 @@ async function mount() {
       act(load);
     }
   }, 700);
+  reviews = mountReviewWorkspace(root, {
+    pageKey: () => page.key,
+    onView: (value) => {
+      reviewOpen = value;
+      voice.stop();
+      hovered = null;
+      $('.workspace').hidden = value;
+      $('.footer').hidden = value;
+      setReviewing(reviewing);
+    },
+    onSummary: updateControls,
+    reload: load,
+    locate: revisit,
+    notice: setNotice,
+  });
   try {
     await load();
     await rpc({ type: 'ENABLED', enabled: true });
