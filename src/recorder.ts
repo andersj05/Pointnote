@@ -102,6 +102,7 @@ chrome.runtime.onConnect.addListener((port) => {
           close();
         },
         () => send({ type: 'LISTENING' }),
+        (speaking) => send({ type: 'SPEAKING', speaking }),
       );
     })().catch((error) => {
       send({

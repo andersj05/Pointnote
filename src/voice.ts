@@ -32,12 +32,12 @@ export function mountVoice(
     shortcutLabel?: () => string;
   },
 ) {
-  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
+  container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint sr-only" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
   const activity = document.createElement('div');
   activity.className = 'voice-activity';
   activity.hidden = true;
-  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state"></strong></div>${voiceWave()}`;
+  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state" aria-live="polite"></strong></div>${voiceWave()}`;
   container.prepend(activity);
   const enableMicrophone = document.createElement('button');
   enableMicrophone.type = 'button';
@@ -74,10 +74,18 @@ export function mountVoice(
   let phase: VoicePhase = 'idle';
   let heardText = false;
   let settingUpMicrophone = false;
+  const setSpeaking = (speaking: boolean) => {
+    activity.dataset.speaking = String(speaking && phase === 'listening');
+    if (phase === 'listening')
+      activity.querySelector('.voice-activity-state')!.textContent = speaking
+        ? 'Hearing you'
+        : 'Listening';
+  };
   const setPhase = (value: VoicePhase) => {
     phase = value;
     container.dataset.voicePhase = value;
     activity.hidden = value === 'idle';
+    setSpeaking(false);
     activity.querySelector('.voice-activity-state')!.textContent =
       value === 'starting'
         ? 'Opening microphone…'
@@ -144,9 +152,7 @@ export function mountVoice(
     language.disabled = true;
     install.disabled = true;
     setPhase('starting');
-    options.notice(
-      'Preparing the microphone. Wait for Listening before speaking.',
-    );
+    options.notice('');
     void provider
       .start(
         (text) => {
@@ -185,11 +191,10 @@ export function mountVoice(
                 : 'Release to finish';
           talk.setAttribute('aria-label', talkLabel.textContent);
           setPhase('listening');
-          options.notice(
-            mode === 'hands-free'
-              ? 'Listening. Click Stop when you’re done.'
-              : 'Listening. Release to finish.',
-          );
+        },
+        (speaking) => {
+          if (currentSession !== session || phase !== 'listening') return;
+          setSpeaking(speaking);
         },
       )
       .catch((error: unknown) => {
@@ -213,7 +218,6 @@ export function mountVoice(
       talkLabel.textContent = 'Finishing…';
       talk.setAttribute('aria-label', 'Finishing recording');
       setPhase('finishing');
-      options.notice('Finishing your transcript…');
     }
   };
   enableMicrophone.onclick = async () => {
@@ -300,7 +304,9 @@ export function mountVoice(
   const onboarding = document.createElement('section');
   onboarding.className = 'voice-onboarding';
   onboarding.innerHTML =
-    '<strong>Speak your notes</strong><p>Set up your microphone once. Then hold a shortcut to capture your thoughts on any page.</p><button class="primary" type="button" data-setup-voice>Set up voice</button><button class="quiet" type="button" data-skip-voice>Not now</button>';
+    '<div><strong>Prefer to speak?</strong><p>Add feedback with your voice.</p></div><button class="quiet" type="button" data-setup-voice>Set up voice</button><button class="icon" type="button" data-skip-voice aria-label="Not now" title="Not now">' +
+    icon('close') +
+    '</button>';
   container.prepend(onboarding);
   const refreshPreferences = (value: Preferences) => {
     options.preferences = value;
@@ -313,6 +319,8 @@ export function mountVoice(
     enableMicrophone.hidden = Boolean(
       value.voiceReady || !onboarding.hidden || options.createProvider,
     );
+    container.querySelector<HTMLElement>('.voice-controls')!.hidden =
+      !value.voiceReady && !options.createProvider;
     if (!recording) {
       select.value = value.provider;
       language.value = value.language;

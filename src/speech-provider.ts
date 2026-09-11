@@ -8,6 +8,9 @@ export interface Recognizer {
   interimResults: boolean;
   processLocally?: boolean;
   onaudiostart?: (() => void) | null;
+  onspeechstart?: (() => void) | null;
+  onspeechend?: (() => void) | null;
+  onaudioend?: (() => void) | null;
   onresult: ((event: { results: ArrayLike<SpeechResult> }) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
@@ -33,6 +36,7 @@ export interface TranscriptionProvider {
     onEnd: () => void,
     onError: (message: string) => void,
     onListening?: () => void,
+    onSpeaking?: (speaking: boolean) => void,
   ): Promise<void>;
   stop(): boolean;
   abort(): void;
@@ -75,6 +79,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
   private requested = false;
   private timer?: ReturnType<typeof setTimeout>;
   private end?: () => void;
+  private speaking?: (speaking: boolean) => void;
   private clearTimer() {
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -104,10 +109,12 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
     onEnd: () => void,
     onError: (message: string) => void,
     onListening: () => void = () => {},
+    onSpeaking: (speaking: boolean) => void = () => {},
   ) {
     this.released = false;
     this.requested = false;
     this.end = onEnd;
+    this.speaking = onSpeaking;
     const Constructor = this.factory();
     if (!Constructor)
       throw new Error(
@@ -152,6 +159,13 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
       this.clearTimer();
       onListening();
     };
+    recognition.onspeechstart = () => {
+      if (this.released) return;
+      this.clearTimer();
+      onListening();
+      onSpeaking(true);
+    };
+    recognition.onspeechend = recognition.onaudioend = () => onSpeaking(false);
     recognition.onresult = (event) => {
       if (!this.released) {
         this.clearTimer();
@@ -166,6 +180,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
     };
     recognition.onerror = (event) => {
       this.clearTimer();
+      onSpeaking(false);
       const messages: Record<string, string> = {
         'not-allowed':
           'Microphone access was denied for Pointnote. Open voice setup to check the browser permission, then try again.',
@@ -183,6 +198,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
     };
     recognition.onend = () => {
       this.clearTimer();
+      onSpeaking(false);
       this.requested = false;
       onEnd();
     };
@@ -205,6 +221,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
   }
   stop() {
     this.released = true;
+    this.speaking?.(false);
     this.clearTimer();
     if (!this.requested) return false;
     // Keep accepting final results after release; stop() is asynchronous.
@@ -224,6 +241,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
   }
   abort() {
     this.released = true;
+    this.speaking?.(false);
     this.requested = false;
     this.clearTimer();
     try {
