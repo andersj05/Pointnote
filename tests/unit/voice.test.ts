@@ -1,9 +1,19 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   BrowserSpeechProvider,
-  mountVoice,
+  mountVoice as mountVoiceUI,
   type Recognizer,
 } from '../../src/voice';
+function mountVoice(
+  container: HTMLElement,
+  options: Parameters<typeof mountVoiceUI>[1],
+) {
+  return mountVoiceUI(container, {
+    ...options,
+    createProvider: (local, language) =>
+      new BrowserSpeechProvider(local, language),
+  });
+}
 class FakeRecognition implements Recognizer {
   static latest: FakeRecognition;
   static available = vi.fn(async () => 'available');
@@ -167,33 +177,6 @@ describe('replaceable speech provider', () => {
       expect(FakeRecognition.latest.start).not.toHaveBeenCalled();
     },
   );
-  it('verifies that an installed pack is usable before reporting it ready', async () => {
-    class InstallingRecognition extends FakeRecognition {
-      static install = vi.fn(async () => true);
-    }
-    Object.assign(globalThis, { SpeechRecognition: InstallingRecognition });
-    FakeRecognition.available.mockResolvedValueOnce('downloading');
-    const container = document.createElement('div');
-    const notice = vi.fn();
-    const voice = mountVoice(container, {
-      getDraft: () => '',
-      setDraft: () => {},
-      canStart: () => true,
-      onState: () => {},
-      notice,
-    });
-    container.querySelector<HTMLButtonElement>('[data-voice-install]')!.click();
-    await vi.waitFor(() =>
-      expect(notice).toHaveBeenLastCalledWith(
-        expect.stringContaining('still downloading'),
-      ),
-    );
-    expect(InstallingRecognition.install).toHaveBeenCalledWith({
-      langs: ['en-US'],
-      processLocally: true,
-    });
-    voice.reset();
-  });
   it('unlocks a released draft immediately while availability is still pending', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     let resolve!: (value: string) => void;

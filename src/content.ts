@@ -161,6 +161,14 @@ async function mount() {
     start: () => voice.start('middle'),
     release: () => voice.release('middle'),
   });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.preferences) return;
+    void readPreferences().then(({ preferences: value }) => {
+      Object.assign(preferences, value);
+      voice.refreshPreferences(preferences);
+      updateControls();
+    });
+  });
   const act = (action: () => Promise<void>) => {
     void action().catch((error: unknown) =>
       setNotice(error instanceof Error ? error.message : String(error)),

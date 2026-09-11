@@ -2,243 +2,18 @@ import { icon } from './icons';
 import type { Preferences } from './preferences';
 import { voiceWave } from './voice-wave';
 
-export interface SpeechResult {
-  isFinal: boolean;
-  0: { transcript: string };
-}
-export interface Recognizer {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  processLocally?: boolean;
-  onaudiostart?: (() => void) | null;
-  onresult: ((event: { results: ArrayLike<SpeechResult> }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-}
-export interface RecognitionConstructor {
-  new (): Recognizer;
-  available?: (options: {
-    langs: string[];
-    processLocally: boolean;
-  }) => Promise<string>;
-  install?: (options: {
-    langs: string[];
-    processLocally: boolean;
-  }) => Promise<boolean>;
-}
-export interface TranscriptionProvider {
-  id: string;
-  start(
-    onTranscript: (text: string) => void,
-    onEnd: () => void,
-    onError: (message: string) => void,
-    onListening?: () => void,
-  ): Promise<void>;
-  stop(): boolean;
-  abort(): void;
-}
+import {
+  MicrophoneSetupError,
+  type TranscriptionProvider,
+} from './speech-provider';
+export {
+  BrowserSpeechProvider,
+  MicrophoneSetupError,
+  type Recognizer,
+} from './speech-provider';
+import { ExtensionSpeechProvider, openVoiceSetup } from './voice-client';
 type RecordingMode = 'hold' | 'middle' | 'hands-free';
 export type VoicePhase = 'idle' | 'starting' | 'listening' | 'finishing';
-export class MicrophoneSetupError extends Error {}
-async function checkMicrophonePermission() {
-  if (globalThis.isSecureContext === false)
-    throw new MicrophoneSetupError(
-      'Microphone access needs HTTPS or localhost. Open this page through a secure address, then try again.',
-    );
-  // Some browsers do not expose microphone permission through Permissions API.
-  const permission = await navigator.permissions
-    ?.query({ name: 'microphone' as PermissionName })
-    .catch(() => undefined);
-  if (permission && permission.state !== 'granted')
-    throw new MicrophoneSetupError(
-      permission.state === 'denied'
-        ? 'Microphone access is blocked for this page. Allow it in browser site settings, then choose Enable microphone.'
-        : 'Choose Enable microphone once and allow access. Then hold the button or middle mouse to talk.',
-    );
-}
-function languagePackMessage(language: string, availability: string) {
-  if (availability === 'downloadable')
-    return `The browser's ${language} speech language pack is missing. Open Settings → Voice → Install language pack. A Windows language pack does not install this browser pack.`;
-  if (availability === 'downloading')
-    return `The browser's ${language} speech language pack is still downloading. Wait for it to finish, then try the mic again.`;
-  return `An on-device speech language pack for ${language} is unavailable in this browser. In Settings → Voice, choose a supported language or explicitly allow Browser service.`;
-}
-function browserRecognition(): RecognitionConstructor | undefined {
-  const scope = globalThis as typeof globalThis & {
-    SpeechRecognition?: RecognitionConstructor;
-    webkitSpeechRecognition?: RecognitionConstructor;
-  };
-  return scope.SpeechRecognition || scope.webkitSpeechRecognition;
-}
-export class BrowserSpeechProvider implements TranscriptionProvider {
-  readonly id: string;
-  private recognition?: Recognizer;
-  private released = false;
-  private requested = false;
-  private timer?: ReturnType<typeof setTimeout>;
-  private end?: () => void;
-  private clearTimer() {
-    clearTimeout(this.timer);
-    this.timer = undefined;
-  }
-  private async waitForSetup<T>(task: Promise<T>, message: string): Promise<T> {
-    try {
-      return await Promise.race([
-        task,
-        new Promise<never>((_, reject) => {
-          this.timer = setTimeout(() => reject(new Error(message)), 15000);
-        }),
-      ]);
-    } finally {
-      this.clearTimer();
-    }
-  }
-  constructor(
-    private local: boolean,
-    private language = 'en-US',
-    private factory = browserRecognition,
-    private checkPermission = checkMicrophonePermission,
-  ) {
-    this.id = local ? 'web-speech-on-device' : 'web-speech-browser-service';
-  }
-  async start(
-    onTranscript: (text: string) => void,
-    onEnd: () => void,
-    onError: (message: string) => void,
-    onListening: () => void = () => {},
-  ) {
-    this.released = false;
-    this.requested = false;
-    this.end = onEnd;
-    const Constructor = this.factory();
-    if (!Constructor)
-      throw new Error(
-        'Speech recognition is unavailable in this browser. Typed feedback still works.',
-      );
-    const recognition = new Constructor();
-    this.recognition = recognition;
-    recognition.lang = this.language;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    if (this.local) {
-      if (!('processLocally' in recognition) || !Constructor.available)
-        throw new Error(
-          'This browser does not support on-device recognition. You can type, or explicitly choose the browser speech service.',
-        );
-      recognition.processLocally = true;
-      const availability = await this.waitForSetup(
-        Constructor.available({
-          langs: [this.language],
-          processLocally: true,
-        }),
-        'The browser did not finish checking the speech language pack. Open Voice settings and try installing the pack again.',
-      );
-      if (this.released) {
-        onEnd();
-        return;
-      }
-      if (availability !== 'available')
-        throw new Error(languagePackMessage(this.language, availability));
-    } else if ('processLocally' in recognition)
-      recognition.processLocally = false;
-    await this.waitForSetup(
-      this.checkPermission(),
-      'The browser did not finish checking microphone access. Try Enable microphone again.',
-    );
-    if (this.released) {
-      onEnd();
-      return;
-    }
-    recognition.onaudiostart = () => {
-      if (this.released) return;
-      this.clearTimer();
-      onListening();
-    };
-    recognition.onresult = (event) => {
-      if (!this.released) {
-        this.clearTimer();
-        onListening();
-      }
-      onTranscript(
-        Array.from(event.results)
-          .map((r) => r[0].transcript)
-          .join(' ')
-          .trim(),
-      );
-    };
-    recognition.onerror = (event) => {
-      this.clearTimer();
-      const messages: Record<string, string> = {
-        'not-allowed':
-          'Microphone access was denied. Allow it for this page in browser site settings, then try again.',
-        'audio-capture': 'No microphone is available.',
-        'service-not-allowed':
-          'This browser or page blocks the selected speech provider. Check Voice settings and browser permissions.',
-        network: 'The browser speech service is unavailable or offline.',
-        'no-speech': 'No speech detected. Try recording again.',
-        'language-not-supported':
-          'This language is not supported. Install its on-device pack or choose another language.',
-      };
-      onError(
-        messages[event.error] || 'Speech recognition stopped: ' + event.error,
-      );
-    };
-    recognition.onend = () => {
-      this.clearTimer();
-      this.requested = false;
-      onEnd();
-    };
-    if (!this.released) {
-      this.requested = true;
-      this.timer = setTimeout(() => {
-        onError(
-          'The microphone did not start. Choose Enable microphone, check your input device in browser settings, then try again.',
-        );
-        this.abort();
-      }, 15000);
-      try {
-        recognition.start();
-      } catch (error) {
-        recognition.onend = null;
-        this.abort();
-        throw error;
-      }
-    } else onEnd();
-  }
-  stop() {
-    this.released = true;
-    this.clearTimer();
-    if (!this.requested) return false;
-    // Keep accepting final results after release; stop() is asynchronous.
-    this.timer = setTimeout(() => {
-      if (this.recognition) this.recognition.onend = null;
-      this.abort();
-      this.end?.();
-    }, 5000);
-    try {
-      this.recognition?.stop();
-    } catch {
-      /* May be awaiting the language pack check. */
-      this.abort();
-      return false;
-    }
-    return true;
-  }
-  abort() {
-    this.released = true;
-    this.requested = false;
-    this.clearTimer();
-    try {
-      this.recognition?.abort();
-    } catch {
-      /* The browser may already have ended. */
-    }
-  }
-}
 export function mountVoice(
   container: HTMLElement,
   options: {
@@ -249,7 +24,12 @@ export function mountVoice(
     notice: (text: string) => void;
     settings?: HTMLElement;
     preferences?: Preferences;
-    onPreferences?: (value: Pick<Preferences, 'provider' | 'language'>) => void;
+    onPreferences?: (value: Partial<Preferences>) => void;
+    createProvider?: (
+      local: boolean,
+      language: string,
+    ) => TranscriptionProvider;
+    shortcutLabel?: () => string;
   },
 ) {
   container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
@@ -284,8 +64,8 @@ export function mountVoice(
   )!;
   let provider: TranscriptionProvider | undefined;
   let mode: RecordingMode = 'hold';
-  let session = 0,
-    installing = false;
+  let session = 0;
+  const installing = false;
   let recording = false,
     transcript = '',
     providerId = '',
@@ -332,10 +112,17 @@ export function mountVoice(
       );
       return;
     }
-    provider = new BrowserSpeechProvider(
-      select.value === 'local',
-      language.value.trim() || 'en-US',
-    );
+    if (!options.createProvider && !options.preferences?.voiceReady) {
+      enableMicrophone.hidden = false;
+      options.notice('Set up voice once, then use it on every page.');
+      return;
+    }
+    provider = options.createProvider
+      ? options.createProvider(
+          select.value === 'local',
+          language.value.trim() || 'en-US',
+        )
+      : new ExtensionSpeechProvider(select.value === 'local');
     providerId = provider.id;
     base = options.getDraft();
     previousTranscript = transcript;
@@ -432,33 +219,12 @@ export function mountVoice(
   enableMicrophone.onclick = async () => {
     if (recording || settingUpMicrophone) return;
     settingUpMicrophone = true;
-    enableMicrophone.disabled = true;
-    options.notice(
-      'Allow microphone access in the browser prompt. You do not need to hold a button.',
-    );
     try {
-      if (!navigator.mediaDevices?.getUserMedia)
-        throw new Error(
-          'This page cannot access the microphone. Use HTTPS or localhost in a supported browser.',
-        );
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // This only establishes permission; do not keep a setup microphone open.
-      stream.getTracks().forEach((track) => track.stop());
-      enableMicrophone.hidden = true;
-      options.notice(
-        'Microphone enabled. Hold the button or middle mouse, wait for Listening, then speak.',
-      );
+      await openVoiceSetup();
     } catch (error) {
-      options.notice(
-        error instanceof Error && error.name === 'NotAllowedError'
-          ? 'Microphone access is blocked. Allow microphone access for this page in browser site settings and check Windows microphone privacy settings.'
-          : error instanceof Error
-            ? error.message
-            : String(error),
-      );
+      options.notice(String(error));
     } finally {
       settingUpMicrophone = false;
-      enableMicrophone.disabled = false;
     }
   };
   talk.addEventListener('pointerdown', (event) => {
@@ -501,7 +267,7 @@ export function mountVoice(
   const renderSettings = () => {
     settings.querySelector<HTMLElement>('.voice-consent')!.hidden =
       select.value !== 'browser';
-    consent.checked = false;
+
     install.hidden = select.value !== 'local';
     settings.querySelector('.voice-disclosure')!.textContent =
       select.value === 'local'
@@ -510,62 +276,61 @@ export function mountVoice(
   };
   select.value = options.preferences?.provider || 'local';
   language.value = options.preferences?.language || 'en-US';
+  consent.checked = options.preferences?.browserConsent === true;
   renderSettings();
   const persist = () =>
     options.onPreferences?.({
       provider: select.value as Preferences['provider'],
       language: language.value.trim() || 'en-US',
+      browserConsent: consent.checked,
     });
   select.onchange = () => {
     renderSettings();
     persist();
   };
   language.onchange = persist;
+  consent.onchange = persist;
   install.onclick = () => {
-    const Constructor = browserRecognition();
-    if (!Constructor?.install) {
-      options.notice(
-        'On-device language pack installation is unavailable in this browser.',
-      );
-      return;
-    }
-    installing = true;
-    const installLanguage = language.value.trim() || 'en-US';
-    install.disabled = true;
-    options.notice(
-      'Downloading the on-device language pack through your browser…',
-    );
-    void Constructor.install({
-      langs: [installLanguage],
-      processLocally: true,
-    })
-      .then(async (ok) => {
-        if (!ok) {
-          options.notice(
-            `The browser's ${installLanguage} speech language pack could not be installed. Try again or choose Browser service in Voice settings.`,
-          );
-          return;
-        }
-        const availability = await Constructor.available?.({
-          langs: [installLanguage],
-          processLocally: true,
-        });
-        options.notice(
-          availability === 'available'
-            ? `The browser's ${installLanguage} speech language pack is ready. Try hands-free recording first so you can allow microphone access when prompted.`
-            : languagePackMessage(
-                installLanguage,
-                availability || 'unavailable',
-              ),
-        );
-      })
-      .catch((error: unknown) => options.notice(String(error)))
-      .finally(() => {
-        installing = false;
-        install.disabled = recording;
-      });
+    void openVoiceSetup().catch((error) => options.notice(String(error)));
   };
+  const onboarding = document.createElement('section');
+  onboarding.className = 'voice-onboarding';
+  onboarding.innerHTML =
+    '<strong>Speak your notes</strong><p>Set up your microphone once. Then hold a shortcut to capture your thoughts on any page.</p><button class="primary" type="button" data-setup-voice>Set up voice</button><button class="quiet" type="button" data-skip-voice>Not now</button>';
+  container.prepend(onboarding);
+  const refreshPreferences = (value: Preferences) => {
+    options.preferences = value;
+    onboarding.hidden = Boolean(
+      value.voiceReady || value.voiceOnboardingSeen || options.createProvider,
+    );
+    enableMicrophone.hidden = Boolean(
+      value.voiceReady || !onboarding.hidden || options.createProvider,
+    );
+    if (!recording) {
+      select.value = value.provider;
+      language.value = value.language;
+      consent.checked = value.browserConsent === true;
+      renderSettings();
+    }
+  };
+  onboarding.querySelector<HTMLButtonElement>('[data-setup-voice]')!.onclick =
+    () => {
+      enableMicrophone.click();
+    };
+  onboarding.querySelector<HTMLButtonElement>('[data-skip-voice]')!.onclick =
+    () => {
+      onboarding.hidden = true;
+      options.onPreferences?.({ voiceOnboardingSeen: true });
+    };
+  refreshPreferences(
+    options.preferences || {
+      provider: 'local',
+      language: 'en-US',
+      screenshot: true,
+    },
+  );
   return {
+    refreshPreferences,
     get phase() {
       return phase;
     },

@@ -8,6 +8,9 @@ export interface Preferences {
   screenshot: boolean;
   provider: 'local' | 'browser';
   language: string;
+  voiceReady?: boolean;
+  voiceOnboardingSeen?: boolean;
+  browserConsent?: boolean;
 }
 const defaults: Preferences = {
   screenshot: true,
@@ -23,6 +26,9 @@ export async function readPreferences(): Promise<{
   const candidate = stored.panelLayout as PanelBounds | undefined;
   return {
     preferences: {
+      voiceReady: value?.voiceReady === true,
+      voiceOnboardingSeen: value?.voiceOnboardingSeen === true,
+      browserConsent: value?.browserConsent === true,
       screenshot:
         typeof value?.screenshot === 'boolean'
           ? value.screenshot

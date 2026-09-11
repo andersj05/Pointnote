@@ -11,6 +11,12 @@ const shared = {
   logLevel: 'info',
 };
 const configs = [
+  ...['recorder', 'voice-setup'].map((name) => ({
+    ...shared,
+    entryPoints: [`src/${name}.ts`],
+    outfile: `dist/${name}.js`,
+    format: 'iife',
+  })),
   {
     ...shared,
     entryPoints: ['src/content.ts'],

@@ -4,7 +4,13 @@
   "version": "0.1.0",
   "description": "Attach written or spoken feedback to page elements and export context for an AI agent.",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "storage", "unlimitedStorage"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "unlimitedStorage",
+    "offscreen"
+  ],
   "action": {
     "default_title": "Pointnote — review this page",
     "default_icon": { "16": "icon16.png", "32": "icon32.png" }
