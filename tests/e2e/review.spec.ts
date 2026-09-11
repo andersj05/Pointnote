@@ -532,6 +532,12 @@ test('notes can be searched and filtered without changing the export, and keyboa
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');
   await activate(page);
+  await expect(
+    page.getByRole('searchbox', { name: 'Search notes' }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole('combobox', { name: 'Filter notes' }),
+  ).toBeHidden();
   await page.screenshot({ path: info.outputPath('empty-workspace.png') });
   await page
     .locator('.panel')
@@ -581,6 +587,19 @@ test('notes can be searched and filtered without changing the export, and keyboa
     page.getByRole('searchbox', { name: 'Search notes' }),
   ).toBeFocused();
   await page.screenshot({ path: info.outputPath('notes-workspace.png') });
+  const first = page.locator('.card').first();
+  await expect(
+    first.getByRole('button', { name: 'Delete', exact: true }),
+  ).toBeHidden();
+  await first.locator('summary').click();
+  await expect(first.locator('.image-state')).toHaveText('Screenshot attached');
+  await first.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await first
+    .getByRole('button', { name: 'Confirm delete', exact: true })
+    .click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.comment')).toHaveText('Label the chart axes.');
 });
 
 test('hands-free recording toggles and stops when leaving the workspace', async () => {
