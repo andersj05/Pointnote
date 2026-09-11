@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Set up voice · Pointnote</title>
+    <link rel="stylesheet" href="voice-setup.css" />
+  </head>
+  <body>
+    <main>
+      <div class="brand">pointnote <span>VOICE</span></div>
+      <div class="orb" aria-hidden="true">≋</div>
+      <h1>Your voice.<br />Ready on every page.</h1>
+      <p>
+        Allow Pointnote to use your microphone once. Your choice stays with this
+        extension, so you can speak wherever you review.
+      </p>
+      <button id="enable">Enable microphone</button>
+      <p id="status" role="status" aria-live="polite"></p>
+      <section>
+        <h2>Keep it on your computer</h2>
+        <p>
+          On-device transcription uses your browser’s speech pack. Choose the
+          language you’ll speak.
+        </p>
+        <label for="language">Speech language</label
+        ><input id="language" value="en-US" maxlength="35" /><button
+          id="install"
+          class="secondary"
+        >
+          Install language pack
+        </button>
+      </section>
+      <button id="done" class="secondary" hidden>Return to your page</button
+      ><small
+        >No audio is stored. Recording starts only when you use a voice control.
+        You can change your choices in Pointnote Settings.</small
+      >
+    </main>
+    <script src="voice-setup.js"></script>
+  </body>
+</html>

@@ -21,6 +21,8 @@ npm run build
 
 After code changes, rebuild, click **Reload** on the extension card, and refresh the page. Keep the unpacked extension in the same folder to preserve its extension identity and local data.
 
+If **Set up voice** reports **Unknown request** or asks you to reload Pointnote, the page and extension background are running different builds. Open `chrome://extensions` (or `edge://extensions`), click **Reload** on Pointnote, then refresh the reviewed page and reopen Pointnote. Rebuilding or refreshing the page alone does not reload the extension background. Saved notes and settings are preserved.
+
 ## Try the included pages
 
 ```sh
@@ -41,7 +43,7 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 - The large **Hold to talk** button and **Space** while it is focused also work. The adjacent record button starts **hands-free recording**; click Stop when done. Read and edit the transcript before choosing **Save note**, or press **Ctrl+Enter** (**Cmd+Enter** on macOS). Releasing a hold leaves an editable draft; it does not save automatically.
 - Numbered markers and sidebar cards revisit the target. **Mark addressed** / **Reopen** track progress. Missing or ambiguous targets show **Reattach**. Reattachment preserves the original comment and previous target context.
 - Search notes or filter by open, addressed, or reattachment status. Exports always include all notes on the current page.
-- **Pause selection** restores normal page interaction while keeping notes visible. The middle mouse shortcut is active only while selection is on; normal middle-click behavior returns while paused, in settings, minimized, or closed. **×** closes the review UI. **Esc** stops recording, returns from settings, restores a minimized panel, or clears a selection before closing the UI.
+- **Pause selection** restores normal page interaction while keeping notes visible. The configured voice shortcut is active only while selection is on; normal middle-click behavior returns while paused, in settings, minimized, or closed. **×** closes the review UI. **Esc** stops recording, returns from settings, restores a minimized panel, or clears a selection before closing the UI.
 - Drag the title bar to move the panel; drag either bottom corner to resize it. The dock icon beside the page title moves it to the opposite side. Focus the title bar or a resize handle and use arrow keys for keyboard adjustments; hold Shift for larger steps.
 - **Minimize** keeps a compact title bar available and restores normal page use. Restore it to continue your draft.
 - Open **Settings** with the gear icon for screenshots, voice, language, and **Reset layout**. Turning off **Include screenshots** still saves notes with an explicit unavailable reason. Settings and panel position/size are remembered locally; the panel stays within the current window.
@@ -69,11 +71,15 @@ Screenshots show the visible viewport with orange target outlines. Large or mult
 
 **On-device** is the default. It requires browser support for local Web Speech recognition and an installed language pack. Open **Settings → Voice**, set a language such as `en-US`, and use **Install language pack** if needed. A language pack downloads through the browser; local recognition audio stays on the computer.
 
-The optional **Browser service** provider may send audio to the browser vendor's speech service. It requires a separate, explicit opt-in in the UI. Pointnote never silently switches providers, stores raw audio, or embeds private API keys. Microphone permission is requested by the browser for the reviewed page; localhost is a secure context. Support varies by browser, OS, language, and policy. A clear error leaves typed input available.
+On first opening, choose **Set up voice**. Pointnote opens its own setup screen: click **Enable microphone** and allow the browser prompt once, then return to your page. The permission belongs to the extension, not each reviewed website or file. Setup closes its audio stream immediately and remembers completion across pages and restarts. Browser permission can still require setup again if you revoke it, reset browser data, reinstall the extension, or use a different profile. Then hold **Hold to talk** or your voice shortcut and wait for **Listening** before speaking. On release, Pointnote finishes the transcript before unlocking your draft. The green waves are a decorative recording animation, not a volume meter; they animate only after capture begins and respect reduced-motion settings.
+
+The optional **Browser service** provider may send audio to the browser vendor's speech service. It requires a separate, explicit opt-in in the UI. Pointnote never silently switches providers, stores raw audio, or embeds private API keys. Microphone permission is requested for Pointnote’s own extension page; recording runs in its offscreen document. Support varies by browser, OS, language, and policy. A clear error leaves typed input available.
+
+**Settings → Voice → Hold to talk** offers **Middle mouse**, **Backtick (`)**, or **Custom shortcut**. Choose **Record shortcut** and press your key combination or supported extra mouse button; Escape cancels. Keyboard shortcuts leave text fields untouched. Browser/OS reserved shortcuts and device buttons that do not emit browser events cannot be intercepted; map those device buttons to a key combination in their configuration software. Hints update immediately and the binding survives reloads.
 
 The original saved comment is the text you approve after editing. The unedited recognition transcript is retained separately in `input.transcript`. The provider interface is replaceable.
 
-Provider and language preferences are remembered, but browser-service consent must be given again after a page reload. Recording stops when you pause selection, open settings, minimize or close the panel, switch away from the tab or window, or press Escape. Releasing during startup cancels that recording immediately; delayed startup or transcript callbacks cannot overwrite your next edits.
+Provider, language, shortcut, setup completion, and explicit browser-service consent are remembered. Uncheck the consent box in **Settings → Voice** to revoke it; old installations without saved consent still require an explicit opt-in. Recording stops when you pause selection, open settings, minimize or close the panel, switch away from the tab, or press Escape. Hold gestures also stop on lost window focus; hands-free sessions tolerate focus moving to browser controls. Releasing before a recognition request is submitted cancels immediately. After submission, release waits briefly for the final transcript. Delayed callbacks after a session ends cannot overwrite your next edits.
 
 Read [privacy and data handling](docs/privacy.md) before reviewing sensitive material.
 

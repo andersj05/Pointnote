@@ -20,7 +20,9 @@ async function launch() {
     headless: true,
     viewport: { width: 1440, height: 1000 },
     acceptDownloads: true,
+    permissions: ['microphone'],
     args: [
+      '--use-fake-device-for-media-stream',
       '--enable-unsafe-extension-debugging',
       '--disable-extensions-except=' + extensionPath,
       '--load-extension=' + extensionPath,
@@ -71,19 +73,72 @@ async function save(page: Page, comment: string, count: number) {
   );
 }
 async function simulateSpeech(page: Page) {
-  const cdp = await context.newCDPSession(page);
+  const sw = context.serviceWorkers()[0];
+  await sw.evaluate(async () => {
+    const { preferences = {} } = await chrome.storage.local.get('preferences');
+    await chrome.storage.local.set({
+      preferences: {
+        ...(preferences as object),
+        voiceReady: true,
+        voiceOnboardingSeen: true,
+      },
+    });
+  });
+  const pageCdp = await context.newCDPSession(page);
   const worlds: { id: number; origin: string }[] = [];
-  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+  pageCdp.on('Runtime.executionContextCreated', ({ context: world }) =>
     worlds.push(world),
   );
-  await cdp.send('Runtime.enable');
+  await pageCdp.send('Runtime.enable');
   const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
-  const evaluate = (expression: string) =>
-    cdp.send('Runtime.evaluate', { contextId: world.id, expression });
+  await pageCdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression:
+      'chrome.runtime.sendMessage({ target: "pointnote-voice", action: "prepare" })',
+    awaitPromise: true,
+  });
+  await pageCdp.detach();
+  const cdp = await context.browser()!.newBrowserCDPSession();
+  const { targetInfos } = await cdp.send('Target.getTargets');
+  const target = targetInfos.find((t) => t.url.endsWith('/recorder.html'))!;
+  expect(target).toBeTruthy();
+  const { sessionId } = await cdp.send('Target.attachToTarget', {
+    targetId: target.targetId,
+    flatten: false,
+  });
+  let serial = 0;
+  const evaluate = (
+    expression: string,
+  ): Promise<{ result: { value?: unknown } }> =>
+    new Promise((resolve, reject) => {
+      const id = ++serial;
+      const listener = (event: { sessionId: string; message: string }) => {
+        if (event.sessionId !== sessionId) return;
+        const response = JSON.parse(event.message);
+        if (response.id !== id) return;
+        cdp.off('Target.receivedMessageFromTarget', listener);
+        if (response.error || response.result?.exceptionDetails)
+          reject(new Error(JSON.stringify(response)));
+        else resolve(response.result);
+      };
+      cdp.on('Target.receivedMessageFromTarget', listener);
+      void cdp
+        .send('Target.sendMessageToTarget', {
+          sessionId,
+          message: JSON.stringify({
+            id,
+            method: 'Runtime.evaluate',
+            params: { expression, returnByValue: true, awaitPromise: true },
+          }),
+        })
+        .catch(reject);
+    });
   await evaluate(`
     globalThis.speechStarts = 0;
     globalThis.speechDenied = false;
     globalThis.speechPending = false;
+    globalThis.speechDelayAudio = false;
+    globalThis.speechOnRelease = false;
     globalThis.SpeechRecognition = class {
       static available() {
         return globalThis.speechPending
@@ -92,11 +147,21 @@ async function simulateSpeech(page: Page) {
       }
       processLocally = true;
       start() {
+        globalThis.activeSpeech = this;
         globalThis.speechStarts++;
         if (globalThis.speechDenied) this.onerror?.({ error: 'not-allowed' });
-        else this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] });
+        else if (!globalThis.speechDelayAudio) {
+          this.onaudiostart?.();
+          if (!globalThis.speechOnRelease) this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] });
+        }
       }
-      stop() { this.onend?.(); }
+      stop() {
+        if (globalThis.speechOnRelease) setTimeout(() => {
+          this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Final words from the microphone.' } }] });
+          this.onend?.();
+        }, 250);
+        else this.onend?.();
+      }
       abort() { this.onend?.(); }
     };
   `);
@@ -297,23 +362,10 @@ test('multiple selection, precise text ranges, and editable voice transcripts', 
   await select(page, '#evidence-claim');
   // Inject a deterministic recognizer into the extension's isolated world.
   // This tests the real voice UI and storage without claiming microphone/service coverage.
-  const cdp = await context.newCDPSession(page);
-  const worlds: { id: number; name: string; origin: string }[] = [];
-  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
-    worlds.push(world),
+  const speech = await simulateSpeech(page);
+  await speech.evaluate(
+    `activeSpeech = undefined; SpeechRecognition.prototype.start = function() { this.onaudiostart?.(); this.onresult({ results: [{ isFinal: true, 0: { transcript: 'this needs more proof' } }] }); }`,
   );
-  await cdp.send('Runtime.enable');
-  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'));
-  expect(world, JSON.stringify(worlds)).toBeTruthy();
-  await cdp.send('Runtime.evaluate', {
-    contextId: world!.id,
-    expression: `globalThis.SpeechRecognition = class {
-    static async available() { return 'available'; }
-    processLocally = true;
-    start() { this.onresult({ results: [{ isFinal: true, 0: { transcript: 'this needs more proof' } }] }); }
-    stop() { this.onend?.(); } abort() { this.onend?.(); }
-  }`,
-  });
   const talk = page.getByRole('button', { name: 'Hold to talk', exact: true });
   await talk.focus();
   await page.keyboard.down('Space');
@@ -338,7 +390,7 @@ test('multiple selection, precise text ranges, and editable voice transcripts', 
     'This needs more proof. Add a citation.',
   );
   expect(data.annotations[2].input.transcript).toBe('this needs more proof');
-  await cdp.detach();
+  await speech.close();
 });
 test('ambiguous targets remain explicit and screenshot opt-out is exported', async () => {
   const page = await context.newPage();
@@ -535,22 +587,7 @@ test('hands-free recording toggles and stops when leaving the workspace', async 
   await page.goto('http://127.0.0.1:4173/report.html');
   await activate(page);
   await select(page, '#evidence-claim');
-  const cdp = await context.newCDPSession(page);
-  const worlds: { id: number; origin: string }[] = [];
-  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
-    worlds.push(world),
-  );
-  await cdp.send('Runtime.enable');
-  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
-  await cdp.send('Runtime.evaluate', {
-    contextId: world.id,
-    expression: `globalThis.SpeechRecognition = class {
-      static async available() { return 'available'; }
-      processLocally = true;
-      start() { this.onresult({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] }); }
-      stop() { this.onend?.(); } abort() { this.onend?.(); }
-    }`,
-  });
+  const speech = await simulateSpeech(page);
   await page
     .getByRole('button', { name: 'Start hands-free recording' })
     .click();
@@ -558,6 +595,10 @@ test('hands-free recording toggles and stops when leaving the workspace', async 
     page.getByRole('button', { name: 'Stop recording', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect(
+    page.getByRole('button', { name: 'Stop recording', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(
     page.getByRole('textbox', { name: 'Your feedback' }),
   ).toHaveValue('Add supporting evidence.');
@@ -587,7 +628,287 @@ test('hands-free recording toggles and stops when leaving the workspace', async 
   ).toBeVisible();
   await page.getByRole('button', { name: 'Save note' }).click();
   await expect(page.locator('.card')).toHaveCount(1);
+  await speech.close();
+});
+
+for (const gesture of ['button', 'middle'] as const) {
+  test(`${gesture} hold waits for audio, animates waves, and keeps the final transcript`, async ({}, info) => {
+    const page = await context.newPage();
+    await page.goto('http://127.0.0.1:4173/report.html');
+    await activate(page);
+    await select(page, '#evidence-claim');
+    const speech = await simulateSpeech(page);
+    await speech.evaluate('speechDelayAudio = true; speechOnRelease = true');
+    const mouseButton = gesture === 'middle' ? 'middle' : 'left';
+    if (gesture === 'button') {
+      const box = (await page
+        .getByRole('button', { name: 'Hold to talk', exact: true })
+        .boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    } else await page.mouse.move(100, 160);
+    await page.mouse.down({ button: mouseButton });
+    await expect(page.locator('.voice-slot')).toHaveAttribute(
+      'data-voice-phase',
+      'starting',
+    );
+    await expect(page.getByRole('status')).not.toContainText('Listening.');
+    await expect
+      .poll(async () => (await speech.evaluate('speechStarts')).result.value)
+      .toBe(1);
+    await speech.evaluate('activeSpeech.onaudiostart()');
+    await expect(page.locator('.voice-slot')).toHaveAttribute(
+      'data-voice-phase',
+      'listening',
+    );
+    const bar = page.locator('.voice-activity .voice-wave > span').first();
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('voice-wave');
+    await page.screenshot({ path: info.outputPath('voice-wave.png') });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect
+      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
+      .toBe('none');
+    await page.mouse.up({ button: mouseButton });
+    await expect(page.locator('.voice-slot')).toHaveAttribute(
+      'data-voice-phase',
+      'finishing',
+    );
+    await expect(
+      page.getByRole('textbox', { name: 'Your feedback' }),
+    ).toHaveValue('Final words from the microphone.');
+    await expect(page.getByRole('button', { name: 'Save note' })).toBeEnabled();
+    await expect(page.locator('.voice-activity')).toBeHidden();
+    await speech.close();
+  });
+}
+
+test('voice setup explains recovery when an older background rejects the request', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const cdp = await context.newCDPSession(page);
+  const worlds: { id: number; origin: string }[] = [];
+  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+    worlds.push(world),
+  );
+  await cdp.send('Runtime.enable');
+  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
+  // Reproduce the reply from a pre-voice worker left running after a rebuild.
+  await cdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression: `
+      globalThis.originalVoiceSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = (message, ...args) =>
+        message?.target === 'pointnote-voice'
+          ? Promise.resolve({ ok: false, error: 'Unknown request.' })
+          : originalVoiceSendMessage(message, ...args);
+    `,
+  });
+  await page.getByRole('button', { name: 'Set up voice', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'click Reload on Pointnote',
+  );
+  await expect(page.getByRole('status')).toContainText('refresh this page');
+  await expect(page.getByRole('status')).not.toContainText('Unknown request');
+  expect(
+    context.pages().some((p) => p.url().endsWith('/voice-setup.html')),
+  ).toBe(false);
+  await expect(page.locator('.voice-onboarding')).toBeVisible();
+  await expect(page.locator('.voice-activity')).toBeHidden();
+
+  // A successful retry must still open setup; failure must not mark it complete.
+  await cdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression: 'chrome.runtime.sendMessage = originalVoiceSendMessage;',
+  });
+  const newPage = context.waitForEvent('page');
+  await page.getByRole('button', { name: 'Set up voice', exact: true }).click();
+  const setup = await newPage;
+  await setup.waitForLoadState();
+  expect(setup.url()).toContain('/voice-setup.html');
+  await expect(
+    setup.getByRole('button', { name: 'Enable microphone', exact: true }),
+  ).toBeVisible();
   await cdp.detach();
+});
+
+test('voice onboarding saves extension permission and stays complete across page origins', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await expect(
+    page.getByRole('button', { name: 'Set up voice', exact: true }),
+  ).toBeVisible();
+  const newPage = context.waitForEvent('page');
+  await page.getByRole('button', { name: 'Set up voice', exact: true }).click();
+  const setup = await newPage;
+  await setup.waitForLoadState();
+  expect(setup.url()).toContain('chrome-extension://');
+  await setup.evaluate(() => {
+    const original = navigator.mediaDevices.getUserMedia.bind(
+      navigator.mediaDevices,
+    );
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      const stream = await original(constraints);
+      (window as unknown as { setupTracks: MediaStreamTrack[] }).setupTracks =
+        stream.getTracks();
+      return stream;
+    };
+  });
+  await setup
+    .getByRole('button', { name: 'Enable microphone', exact: true })
+    .click();
+  await expect(setup.getByRole('status')).toContainText('Microphone ready');
+  expect(
+    await setup.evaluate(() =>
+      (
+        window as unknown as { setupTracks: MediaStreamTrack[] }
+      ).setupTracks.every((track) => track.readyState === 'ended'),
+    ),
+  ).toBe(true);
+  await setup.getByRole('button', { name: 'Return to your page' }).click();
+  await expect(page.locator('.voice-onboarding')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('.voice-onboarding')).toBeHidden();
+  const other = await context.newPage();
+  await other.goto('http://localhost:4173/frontend.html');
+  await activate(other);
+  await expect(other.locator('.voice-onboarding')).toBeHidden();
+  const speech = await simulateSpeech(other);
+  expect((await speech.evaluate('location.protocol')).result.value).toBe(
+    'chrome-extension:',
+  );
+  await speech.close();
+});
+
+test('voice shortcut and browser consent persist while keyboard typing stays normal', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const speech = await simulateSpeech(page);
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await page
+    .getByRole('combobox', { name: 'Voice shortcut', exact: true })
+    .selectOption('backtick');
+  await page
+    .getByRole('combobox', { name: 'Transcription provider' })
+    .selectOption('browser');
+  const consent = page.getByRole('checkbox', {
+    name: /I allow the browser speech service/,
+  });
+  await consent.check();
+  await page.reload();
+  await expect(
+    page.getByRole('complementary', { name: 'Pointnote review' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await expect(consent).toBeChecked();
+  await expect(
+    page.getByRole('combobox', { name: 'Voice shortcut', exact: true }),
+  ).toHaveValue('backtick');
+  await page.getByRole('button', { name: 'Back to notes' }).click();
+  await select(page, '#evidence-claim');
+  await page.keyboard.down('`');
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
+  await page.keyboard.up('`');
+  const feedback = page.getByRole('textbox', { name: 'Your feedback' });
+  await expect(feedback).toBeEnabled();
+  await feedback.fill('Typed ');
+  await page.keyboard.type('`');
+  await expect(feedback).toHaveValue('Typed `');
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(1);
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await page.getByRole('button', { name: /Record shortcut/ }).click();
+  await page.keyboard.press('Control+Alt+v');
+  await expect(
+    page.getByRole('button', { name: /Record shortcut/ }),
+  ).toContainText('Ctrl + Alt + V');
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('voice-settings.png') });
+  await page.reload();
+  await expect(
+    page.getByRole('complementary', { name: 'Pointnote review' }),
+  ).toBeVisible();
+  await select(page, '#evidence-claim');
+  await page.keyboard.down('Control');
+  await page.keyboard.down('Alt');
+  await page.keyboard.down('v');
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
+  await page.keyboard.up('v');
+  await page.keyboard.up('Alt');
+  await page.keyboard.up('Control');
+  await expect(feedback).toBeEnabled();
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await consent.uncheck();
+  await page.reload();
+  await expect(
+    page.getByRole('complementary', { name: 'Pointnote review' }),
+  ).toBeVisible();
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('button', { name: 'Start hands-free recording' })
+    .click();
+  await expect(page.getByRole('status')).toContainText(
+    'allow browser audio processing',
+  );
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(2);
+  await speech.close();
+});
+
+test('offscreen recording releases its owner on reload and stops on consent revocation', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const speech = await simulateSpeech(page);
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await page
+    .getByRole('combobox', { name: 'Transcription provider' })
+    .selectOption('browser');
+  await page
+    .getByRole('checkbox', { name: /I allow the browser speech service/ })
+    .check();
+  await page.getByRole('button', { name: 'Back to notes' }).click();
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('button', { name: 'Start hands-free recording' })
+    .click();
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
+  await page.reload();
+  await expect(
+    page.getByRole('complementary', { name: 'Pointnote review' }),
+  ).toBeVisible();
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('button', { name: 'Start hands-free recording' })
+    .click();
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(2);
+  await context.serviceWorkers()[0].evaluate(async () => {
+    const { preferences } = await chrome.storage.local.get('preferences');
+    await chrome.storage.local.set({
+      preferences: { ...(preferences as object), browserConsent: false },
+    });
+  });
+  await expect(page.getByRole('status')).toContainText('consent was revoked');
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'idle',
+  );
+  await speech.close();
 });
 
 test('middle mouse records the selected target from anywhere and keeps an editable draft', async ({}, info) => {
@@ -679,6 +1000,10 @@ test('middle mouse respects text selections and preserves normal links when sele
   await page.mouse.move(box.x + 10, box.y + 10);
   await page.mouse.down({ button: 'middle' });
   await expect(page.locator('.recording-toast')).toBeVisible();
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
   await page.mouse.up({ button: 'middle' });
   await expect(
     page.getByRole('textbox', { name: 'Your feedback' }),
@@ -716,6 +1041,11 @@ test('middle recording cancels safely and recovers from delayed startup and micr
   await speech.evaluate('speechPending = true');
   await page.mouse.move(90, 250);
   await page.mouse.down({ button: 'middle' });
+  await expect
+    .poll(
+      async () => (await speech.evaluate('typeof resolveSpeech')).result.value,
+    )
+    .toBe('function');
   await page.mouse.up({ button: 'middle' });
   await expect(feedback).toBeEnabled();
   await speech.evaluate("resolveSpeech('available'); speechPending = false");

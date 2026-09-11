@@ -1,5 +1,7 @@
 import { listAnnotations, putAnnotation, deleteAnnotation } from './storage';
 import type { Request, Response } from './types';
+import { mountVoiceBackground } from './voice-background';
+mountVoiceBackground();
 async function activate(tab: chrome.tabs.Tab) {
   if (!tab.id) return;
   try {
@@ -50,6 +52,7 @@ let captureQueue: Promise<unknown> = Promise.resolve();
 let lastCapture = 0;
 chrome.runtime.onMessage.addListener(
   (message: Request, sender, respond: (value: Response<unknown>) => void) => {
+    if ('target' in message) return;
     if (sender.id !== chrome.runtime.id || !sender.tab || sender.frameId !== 0)
       return;
     const tab = sender.tab;

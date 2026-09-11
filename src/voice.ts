@@ -1,138 +1,19 @@
 import { icon } from './icons';
 import type { Preferences } from './preferences';
+import { voiceWave } from './voice-wave';
 
-export interface SpeechResult {
-  isFinal: boolean;
-  0: { transcript: string };
-}
-export interface Recognizer {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  processLocally?: boolean;
-  onresult: ((event: { results: ArrayLike<SpeechResult> }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-}
-export interface RecognitionConstructor {
-  new (): Recognizer;
-  available?: (options: {
-    langs: string[];
-    processLocally: boolean;
-  }) => Promise<string>;
-  install?: (options: {
-    langs: string[];
-    processLocally: boolean;
-  }) => Promise<boolean>;
-}
-export interface TranscriptionProvider {
-  id: string;
-  start(
-    onTranscript: (text: string) => void,
-    onEnd: () => void,
-    onError: (message: string) => void,
-  ): Promise<void>;
-  stop(): void;
-  abort(): void;
-}
+import {
+  MicrophoneSetupError,
+  type TranscriptionProvider,
+} from './speech-provider';
+export {
+  BrowserSpeechProvider,
+  MicrophoneSetupError,
+  type Recognizer,
+} from './speech-provider';
+import { ExtensionSpeechProvider, openVoiceSetup } from './voice-client';
 type RecordingMode = 'hold' | 'middle' | 'hands-free';
-function browserRecognition(): RecognitionConstructor | undefined {
-  const scope = globalThis as typeof globalThis & {
-    SpeechRecognition?: RecognitionConstructor;
-    webkitSpeechRecognition?: RecognitionConstructor;
-  };
-  return scope.SpeechRecognition || scope.webkitSpeechRecognition;
-}
-export class BrowserSpeechProvider implements TranscriptionProvider {
-  readonly id: string;
-  private recognition?: Recognizer;
-  private released = false;
-  constructor(
-    private local: boolean,
-    private language = 'en-US',
-    private factory = browserRecognition,
-  ) {
-    this.id = local ? 'web-speech-on-device' : 'web-speech-browser-service';
-  }
-  async start(
-    onTranscript: (text: string) => void,
-    onEnd: () => void,
-    onError: (message: string) => void,
-  ) {
-    this.released = false;
-    const Constructor = this.factory();
-    if (!Constructor)
-      throw new Error(
-        'Speech recognition is unavailable in this browser. Typed feedback still works.',
-      );
-    const recognition = new Constructor();
-    this.recognition = recognition;
-    recognition.lang = this.language;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    if (this.local) {
-      if (!('processLocally' in recognition) || !Constructor.available)
-        throw new Error(
-          'This browser does not support on-device recognition. You can type, or explicitly choose the browser speech service.',
-        );
-      recognition.processLocally = true;
-      const availability = await Constructor.available({
-        langs: [this.language],
-        processLocally: true,
-      });
-      if (this.released) {
-        onEnd();
-        return;
-      }
-      if (availability !== 'available')
-        throw new Error(
-          'On-device language pack is ' +
-            availability +
-            '. Use Install language pack, or type your feedback.',
-        );
-    } else if ('processLocally' in recognition)
-      recognition.processLocally = false;
-    recognition.onresult = (event) =>
-      onTranscript(
-        Array.from(event.results)
-          .map((r) => r[0].transcript)
-          .join(' ')
-          .trim(),
-      );
-    recognition.onerror = (event) => {
-      const messages: Record<string, string> = {
-        'not-allowed':
-          'Microphone access was denied. Allow it for this page in browser site settings, then try again.',
-        'audio-capture': 'No microphone is available.',
-        network: 'The browser speech service is unavailable or offline.',
-        'no-speech': 'No speech detected. Try recording again.',
-        'language-not-supported':
-          'This language is not supported. Install its on-device pack or choose another language.',
-      };
-      onError(
-        messages[event.error] || 'Speech recognition stopped: ' + event.error,
-      );
-    };
-    recognition.onend = onEnd;
-    if (!this.released) recognition.start();
-    else onEnd();
-  }
-  stop() {
-    this.released = true;
-    try {
-      this.recognition?.stop();
-    } catch {
-      /* May be awaiting the language pack check. */
-    }
-  }
-  abort() {
-    this.released = true;
-    this.recognition?.abort();
-  }
-}
+export type VoicePhase = 'idle' | 'starting' | 'listening' | 'finishing';
 export function mountVoice(
   container: HTMLElement,
   options: {
@@ -143,13 +24,29 @@ export function mountVoice(
     notice: (text: string) => void;
     settings?: HTMLElement;
     preferences?: Preferences;
-    onPreferences?: (value: Pick<Preferences, 'provider' | 'language'>) => void;
+    onPreferences?: (value: Partial<Preferences>) => void;
+    createProvider?: (
+      local: boolean,
+      language: string,
+    ) => TranscriptionProvider;
+    shortcutLabel?: () => string;
   },
 ) {
   container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
+  const activity = document.createElement('div');
+  activity.className = 'voice-activity';
+  activity.hidden = true;
+  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state"></strong></div>${voiceWave()}`;
+  container.prepend(activity);
+  const enableMicrophone = document.createElement('button');
+  enableMicrophone.type = 'button';
+  enableMicrophone.className = 'secondary microphone-setup';
+  enableMicrophone.textContent = 'Enable microphone';
+  enableMicrophone.hidden = true;
+  container.append(enableMicrophone);
   if (!options.settings) container.append(settings);
-  settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
+  settings.innerHTML = `<label class="setting-field">Transcription<select aria-label="Transcription provider"><option value="local">On-device</option><option value="browser">Browser service</option></select></label><p class="voice-disclosure setting-description"></p><label class="setting-field">Language<input aria-label="Speech language" value="en-US" maxlength="35" spellcheck="false" placeholder="en-US"></label><label class="privacy voice-consent" hidden><input type="checkbox">I allow the browser speech service to process my audio. It may send audio to its provider.</label><div class="setting-row"><span data-mic-status>Microphone setup</span><button class="secondary" type="button" data-mic-manage>Manage microphone</button></div><button class="secondary" type="button" data-voice-install>Install language pack</button>`;
   const talk = container.querySelector<HTMLButtonElement>('[data-voice-talk]')!;
   const toggle = container.querySelector<HTMLButtonElement>(
     '[data-voice-toggle]',
@@ -167,17 +64,30 @@ export function mountVoice(
   )!;
   let provider: TranscriptionProvider | undefined;
   let mode: RecordingMode = 'hold';
-  let session = 0,
-    installing = false;
+  let session = 0;
+  const installing = false;
   let recording = false,
-    starting = false,
     transcript = '',
     providerId = '',
     base = '',
     previousTranscript = '';
+  let phase: VoicePhase = 'idle';
+  let heardText = false;
+  let settingUpMicrophone = false;
+  const setPhase = (value: VoicePhase) => {
+    phase = value;
+    container.dataset.voicePhase = value;
+    activity.hidden = value === 'idle';
+    activity.querySelector('.voice-activity-state')!.textContent =
+      value === 'starting'
+        ? 'Opening microphone…'
+        : value === 'finishing'
+          ? 'Finishing transcript…'
+          : 'Listening';
+    options.onState();
+  };
   const finish = () => {
     recording = false;
-    starting = false;
     talk.classList.remove('recording');
     talkLabel.textContent = 'Hold to talk';
     talk.setAttribute('aria-label', 'Hold to talk');
@@ -191,34 +101,37 @@ export function mountVoice(
     select.disabled = false;
     language.disabled = false;
     install.disabled = installing;
-    options.onState();
+    setPhase('idle');
   };
   const start = (requestedMode: RecordingMode = 'hold') => {
-    if (recording || !options.canStart()) return;
+    if (recording || settingUpMicrophone || installing || !options.canStart())
+      return;
     if (select.value === 'browser' && !consent.checked) {
       options.notice(
         'Open Settings and allow browser audio processing before using that provider.',
       );
       return;
     }
-    provider = new BrowserSpeechProvider(
-      select.value === 'local',
-      language.value.trim() || 'en-US',
-    );
+    if (!options.createProvider && !options.preferences?.voiceReady) {
+      enableMicrophone.hidden = false;
+      options.notice('Set up voice once, then use it on every page.');
+      return;
+    }
+    provider = options.createProvider
+      ? options.createProvider(
+          select.value === 'local',
+          language.value.trim() || 'en-US',
+        )
+      : new ExtensionSpeechProvider(select.value === 'local');
     providerId = provider.id;
     base = options.getDraft();
     previousTranscript = transcript;
     const currentSession = ++session;
     mode = requestedMode;
     recording = true;
-    starting = true;
+    heardText = false;
     talk.classList.add('recording');
-    talkLabel.textContent =
-      mode === 'hands-free'
-        ? 'Listening…'
-        : mode === 'middle'
-          ? 'Release middle button'
-          : 'Release to finish';
+    talkLabel.textContent = 'Starting microphone…';
     talk.setAttribute('aria-label', talkLabel.textContent);
     talk.setAttribute('aria-pressed', 'true');
     toggle.classList.add('recording');
@@ -230,18 +143,15 @@ export function mountVoice(
     select.disabled = true;
     language.disabled = true;
     install.disabled = true;
-    options.onState();
+    setPhase('starting');
     options.notice(
-      mode === 'hands-free'
-        ? 'Listening. Click Stop when you’re done.'
-        : mode === 'middle'
-          ? 'Listening. Release the middle mouse button to finish.'
-          : 'Listening. Release to finish.',
+      'Preparing the microphone. Wait for Listening before speaking.',
     );
     void provider
       .start(
         (text) => {
           if (currentSession !== session) return;
+          heardText ||= Boolean(text.trim());
           transcript = [previousTranscript, text].filter(Boolean).join(' ');
           options.setDraft(base + (base && text ? '\n' : '') + text);
         },
@@ -249,7 +159,12 @@ export function mountVoice(
           if (currentSession !== session) return;
           session++;
           finish();
-          options.notice('Recording finished. Review your note before saving.');
+          options.notice(
+            heardText
+              ? 'Recording finished. Review your note before saving.'
+              : 'No words were captured. Enable microphone, check your input device, then wait for Listening before speaking.',
+          );
+          enableMicrophone.hidden = heardText;
         },
         (error) => {
           if (currentSession !== session) return;
@@ -257,25 +172,59 @@ export function mountVoice(
           provider?.abort();
           finish();
           options.notice(error);
+          enableMicrophone.hidden = false;
+        },
+        () => {
+          if (currentSession !== session || phase !== 'starting') return;
+          enableMicrophone.hidden = true;
+          talkLabel.textContent =
+            mode === 'hands-free'
+              ? 'Listening…'
+              : mode === 'middle'
+                ? `Release ${options.shortcutLabel?.() || 'middle button'}`
+                : 'Release to finish';
+          talk.setAttribute('aria-label', talkLabel.textContent);
+          setPhase('listening');
+          options.notice(
+            mode === 'hands-free'
+              ? 'Listening. Click Stop when you’re done.'
+              : 'Listening. Release to finish.',
+          );
         },
       )
-      .then(() => {
-        if (currentSession === session) starting = false;
-      })
       .catch((error: unknown) => {
         if (currentSession !== session) return;
         session++;
         options.notice(error instanceof Error ? error.message : String(error));
+        enableMicrophone.hidden = !(error instanceof MicrophoneSetupError);
         finish();
       });
   };
   const stop = () => {
     if (!recording) return;
-    provider?.stop();
-    if (starting) {
+    if (phase === 'finishing') return;
+    const pending = provider?.stop();
+    if (!recording) return;
+    if (!pending) {
       session++;
       finish();
       options.notice('Recording canceled. Your draft is still here.');
+    } else {
+      talkLabel.textContent = 'Finishing…';
+      talk.setAttribute('aria-label', 'Finishing recording');
+      setPhase('finishing');
+      options.notice('Finishing your transcript…');
+    }
+  };
+  enableMicrophone.onclick = async () => {
+    if (recording || settingUpMicrophone) return;
+    settingUpMicrophone = true;
+    try {
+      await openVoiceSetup();
+    } catch (error) {
+      options.notice(String(error));
+    } finally {
+      settingUpMicrophone = false;
     }
   };
   talk.addEventListener('pointerdown', (event) => {
@@ -307,64 +256,91 @@ export function mountVoice(
     if (recording) stop();
     else start('hands-free');
   };
-  window.addEventListener('blur', stop);
+  window.addEventListener('blur', () => {
+    // A browser permission prompt can take focus from a hands-free session.
+    // Hold gestures must still stop when their release might be missed.
+    if (mode !== 'hands-free') stop();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stop();
   });
   const renderSettings = () => {
     settings.querySelector<HTMLElement>('.voice-consent')!.hidden =
       select.value !== 'browser';
-    consent.checked = false;
+
     install.hidden = select.value !== 'local';
     settings.querySelector('.voice-disclosure')!.textContent =
       select.value === 'local'
-        ? 'Audio stays on this computer. Requires browser support and a language pack.'
-        : 'Audio may be sent to your browser’s speech provider. Your permission is required below.';
+        ? 'Audio stays on this computer. Install the speech pack here for the exact language below; Windows language packs do not replace the browser pack.'
+        : 'Audio may be sent to your browser’s speech provider. Your choice below is remembered. Uncheck it to revoke consent.';
   };
   select.value = options.preferences?.provider || 'local';
   language.value = options.preferences?.language || 'en-US';
+  consent.checked = options.preferences?.browserConsent === true;
   renderSettings();
   const persist = () =>
     options.onPreferences?.({
       provider: select.value as Preferences['provider'],
       language: language.value.trim() || 'en-US',
+      browserConsent: consent.checked,
     });
   select.onchange = () => {
     renderSettings();
     persist();
   };
   language.onchange = persist;
+  consent.onchange = persist;
   install.onclick = () => {
-    const Constructor = browserRecognition();
-    if (!Constructor?.install) {
-      options.notice(
-        'On-device language pack installation is unavailable in this browser.',
-      );
-      return;
-    }
-    installing = true;
-    install.disabled = true;
-    options.notice(
-      'Downloading the on-device language pack through your browser…',
-    );
-    void Constructor.install({
-      langs: [language.value.trim() || 'en-US'],
-      processLocally: true,
-    })
-      .then((ok) =>
-        options.notice(
-          ok
-            ? 'Language pack installed. Hold to talk when ready.'
-            : 'The language pack could not be installed.',
-        ),
-      )
-      .catch((error: unknown) => options.notice(String(error)))
-      .finally(() => {
-        installing = false;
-        install.disabled = recording;
-      });
+    void openVoiceSetup().catch((error) => options.notice(String(error)));
   };
+  settings.querySelector<HTMLButtonElement>('[data-mic-manage]')!.onclick =
+    () => {
+      void openVoiceSetup().catch((error) => options.notice(String(error)));
+    };
+  const onboarding = document.createElement('section');
+  onboarding.className = 'voice-onboarding';
+  onboarding.innerHTML =
+    '<strong>Speak your notes</strong><p>Set up your microphone once. Then hold a shortcut to capture your thoughts on any page.</p><button class="primary" type="button" data-setup-voice>Set up voice</button><button class="quiet" type="button" data-skip-voice>Not now</button>';
+  container.prepend(onboarding);
+  const refreshPreferences = (value: Preferences) => {
+    options.preferences = value;
+    settings.querySelector('[data-mic-status]')!.textContent = value.voiceReady
+      ? 'Ready across pages'
+      : 'Set up once';
+    onboarding.hidden = Boolean(
+      value.voiceReady || value.voiceOnboardingSeen || options.createProvider,
+    );
+    enableMicrophone.hidden = Boolean(
+      value.voiceReady || !onboarding.hidden || options.createProvider,
+    );
+    if (!recording) {
+      select.value = value.provider;
+      language.value = value.language;
+      consent.checked = value.browserConsent === true;
+      renderSettings();
+    }
+  };
+  onboarding.querySelector<HTMLButtonElement>('[data-setup-voice]')!.onclick =
+    () => {
+      enableMicrophone.click();
+    };
+  onboarding.querySelector<HTMLButtonElement>('[data-skip-voice]')!.onclick =
+    () => {
+      onboarding.hidden = true;
+      options.onPreferences?.({ voiceOnboardingSeen: true });
+    };
+  refreshPreferences(
+    options.preferences || {
+      provider: 'local',
+      language: 'en-US',
+      screenshot: true,
+    },
+  );
   return {
+    refreshPreferences,
+    get phase() {
+      return phase;
+    },
     get recording() {
       return recording;
     },
