@@ -50,8 +50,8 @@ async function checkMicrophonePermission() {
   if (permission && permission.state !== 'granted')
     throw new MicrophoneSetupError(
       permission.state === 'denied'
-        ? 'Microphone access is blocked for this page. Allow it in browser site settings, then choose Enable microphone.'
-        : 'Choose Enable microphone once and allow access. Then hold the button or middle mouse to talk.',
+        ? 'Pointnote microphone access is blocked. Open voice setup to restore the browser permission.'
+        : 'Complete Pointnote voice setup once and allow microphone access. Then use your voice shortcut on any page.',
     );
 }
 export function languagePackMessage(language: string, availability: string) {
@@ -168,7 +168,7 @@ export class BrowserSpeechProvider implements TranscriptionProvider {
       this.clearTimer();
       const messages: Record<string, string> = {
         'not-allowed':
-          'Microphone access was denied. Allow it for this page in browser site settings, then try again.',
+          'Microphone access was denied for Pointnote. Open voice setup to check the browser permission, then try again.',
         'audio-capture': 'No microphone is available.',
         'service-not-allowed':
           'This browser or page blocks the selected speech provider. Check Voice settings and browser permissions.',

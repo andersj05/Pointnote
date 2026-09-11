@@ -376,7 +376,7 @@ describe('replaceable speech provider', () => {
     expect(draft).toBe('A new draft');
     expect(voice.input()).toEqual({ method: 'typed' });
   });
-  it('requires fresh consent for a remembered browser speech provider', async () => {
+  it('requires explicit consent when a remembered provider has no saved opt-in', async () => {
     Object.assign(globalThis, { SpeechRecognition: FakeRecognition });
     const container = document.createElement('div');
     const settings = document.createElement('div');

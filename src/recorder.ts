@@ -2,6 +2,16 @@ import { BrowserSpeechProvider } from './speech-provider';
 import type { Preferences } from './preferences';
 
 let owner: chrome.runtime.Port | undefined;
+let revokeBrowser: (() => void) | undefined;
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (
+    sender.id === chrome.runtime.id &&
+    !sender.tab &&
+    message?.target === 'pointnote-recorder' &&
+    message.type === 'REVOKE_BROWSER'
+  )
+    revokeBrowser?.();
+});
 chrome.runtime.onConnect.addListener((port) => {
   if (
     port.name !== 'pointnote-recorder' ||
@@ -25,7 +35,10 @@ chrome.runtime.onConnect.addListener((port) => {
     if (closed) return;
     closed = true;
     provider?.abort();
-    if (owner === port) owner = undefined;
+    if (owner === port) {
+      owner = undefined;
+      revokeBrowser = undefined;
+    }
   };
   port.onDisconnect.addListener(close);
   port.onMessage.addListener((message) => {
@@ -67,6 +80,17 @@ chrome.runtime.onConnect.addListener((port) => {
         preferences.provider === 'local',
         preferences.language,
       );
+      revokeBrowser =
+        preferences.provider === 'browser'
+          ? () => {
+              send({
+                type: 'ERROR',
+                error:
+                  'Browser audio processing consent was revoked. Recording stopped.',
+              });
+              close();
+            }
+          : undefined;
       await provider.start(
         (text) => send({ type: 'TEXT', text }),
         () => {

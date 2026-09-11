@@ -38,6 +38,15 @@ async function openSetup() {
   }
 }
 export function mountVoiceBackground() {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.preferences) return;
+    const value = changes.preferences.newValue as
+      { browserConsent?: boolean } | undefined;
+    if (!value?.browserConsent)
+      void chrome.runtime
+        .sendMessage({ target: 'pointnote-recorder', type: 'REVOKE_BROWSER' })
+        .catch(() => {});
+  });
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (
       message?.target !== 'pointnote-voice' ||
