@@ -100,7 +100,8 @@ chrome.runtime.onMessage.addListener(
             !/^[\w-]{36}$/.test(a.id) ||
             !a.originalComment.trim() ||
             a.originalComment.length > 20000 ||
-            !a.targets.length ||
+            (!a.targets.length &&
+              !['page', 'region'].includes(a.selectionKind)) ||
             a.targets.length > 12 ||
             JSON.stringify(a).length > 16000000
           )

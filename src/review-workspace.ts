@@ -102,6 +102,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
   function run(action: () => void | Promise<void>) {
     if (locked) return;
     locked = true;
+    options.onSummary();
     for (const control of section.querySelectorAll<
       | HTMLButtonElement
       | HTMLInputElement
@@ -122,6 +123,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       )
       .finally(() => {
         locked = false;
+        options.onSummary();
         for (const control of section.querySelectorAll<
           | HTMLButtonElement
           | HTMLInputElement
@@ -159,7 +161,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
   }
   async function open(next: View) {
     await refreshSummary();
-    focusReturn = root.activeElement as HTMLElement | null;
+    if (section.hidden) focusReturn = root.activeElement as HTMLElement | null;
     view = next;
     section.hidden = false;
     options.onView(true);
@@ -177,6 +179,11 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       checkNotes = scopedNotes().filter(
         (note) => note.priority !== 'later' && note.resolution === 'open',
       );
+      checkNotes.sort(
+        (a, b) =>
+          Number(b.page.key === options.pageKey()) -
+          Number(a.page.key === options.pageKey()),
+      );
       checkIndex = 0;
       renderCheck();
     } else renderSessions();
@@ -186,7 +193,11 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
     if (locked || section.hidden) return;
     section.hidden = true;
     options.onView(false);
-    focusReturn?.focus({ preventScroll: true });
+    const fallback = root.querySelector<HTMLElement>('[data-action=export]');
+    (focusReturn?.isConnected && !section.contains(focusReturn)
+      ? focusReturn
+      : fallback
+    )?.focus({ preventScroll: true });
   }
   back.onclick = close;
 
@@ -664,6 +675,9 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
     open,
     close,
     refreshSummary,
+    get isBusy() {
+      return locked;
+    },
     get isOpen() {
       return !section.hidden;
     },

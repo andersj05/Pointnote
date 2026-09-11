@@ -85,7 +85,8 @@ export interface Annotation {
   createdAt: string;
   updatedAt: string;
   page: PageContext;
-  selectionKind: 'element' | 'multiple' | 'text-range';
+  selectionKind: 'element' | 'multiple' | 'text-range' | 'page' | 'region';
+  region?: Bounds;
   targets: Target[];
   screenshot: Screenshot;
   status: Status;

@@ -53,8 +53,9 @@ async function mount() {
         <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
           <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
+          <div class="scope-tools"><button class="quiet" data-mode="page" aria-pressed="false">Page note</button><button class="quiet" data-mode="region" aria-pressed="false">Select area</button></div>
           <form class="composer">
-          <div class="selection-prompt">${icon('cursor')}<span class="hint">Select an element on the page</span></div>
+          <div class="selection-prompt">${icon('cursor')}<span class="hint">Click something you want to change</span></div>
           <div class="target" hidden><div class="target-top"><span class="target-name sr-only"></span><button class="quiet" type="button" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
             <label class="sr-only" for="feedback">Your feedback</label>
             <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback" aria-describedby="save-hint"></textarea>
@@ -108,7 +109,10 @@ async function mount() {
     refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let matching = false,
     matchAgain = false;
-  let selectionMode: 'element' | 'text' | 'multiple' = 'element';
+  let selectionMode: 'element' | 'text' | 'multiple' | 'page' | 'region' =
+    'element';
+  let regionDraft: Bounds | undefined;
+  let regionPreview: Bounds | undefined;
   let quote: Target['range'];
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const setNotice = (message: string, transient = false) => {
@@ -155,7 +159,7 @@ async function mount() {
       updateControls();
     },
     canStart: () => {
-      if (!selected.length)
+      if (!hasSelection())
         setNotice('Select a target before recording feedback.');
       return (
         opened &&
@@ -165,7 +169,7 @@ async function mount() {
         !settingsOpen &&
         !reviewOpen &&
         !minimized &&
-        selected.length > 0
+        hasSelection()
       );
     },
     onState: updateControls,
@@ -200,8 +204,13 @@ async function mount() {
       setNotice(error instanceof Error ? error.message : String(error)),
     );
   };
+  function hasSelection() {
+    return (
+      selected.length > 0 || selectionMode === 'page' || Boolean(regionDraft)
+    );
+  }
   function updateControls() {
-    const locked = busy || transitioning;
+    const locked = busy || transitioning || Boolean(reviews?.isBusy);
     $<HTMLButtonElement>('[data-action=clear-page]').disabled =
       locked || voice.recording || !annotations.length;
     $<HTMLButtonElement>('[data-action=confirm-clear-page]').disabled = locked;
@@ -212,22 +221,22 @@ async function mount() {
       `Hold ${holdKey} outside text fields, hold this button, or hold Space while focused`;
     $('.talk-key').textContent = holdKey;
     const voiceHint = $('.voice-hint');
-    voiceHint.textContent = !selected.length
+    voiceHint.textContent = !hasSelection()
       ? `Select a target, then hold ${holdKey} to talk.`
       : !reviewing
         ? 'Resume selection to use your voice shortcut.'
         : `Hold ${holdKey} to talk about this selection.`;
-    voiceHint.classList.toggle('ready', Boolean(selected.length && reviewing));
+    voiceHint.classList.toggle('ready', Boolean(hasSelection() && reviewing));
     $<HTMLButtonElement>('[data-action=save]').disabled =
       locked ||
       voice.recording ||
-      !selected.length ||
+      !hasSelection() ||
       (!reattaching && !feedback.value.trim());
     $<HTMLButtonElement>('[data-action=export]').disabled =
       locked ||
       (!annotations.length &&
         !reviews?.hasNotes &&
-        !(selected.length && (feedback.value.trim() || voice.recording)));
+        !(hasSelection() && (feedback.value.trim() || voice.recording)));
     $<HTMLButtonElement>('[data-action=sessions]').disabled = locked;
     $<HTMLButtonElement>('[data-action=check-changes]').disabled =
       locked || (!annotations.length && !reviews?.hasNotes);
@@ -248,7 +257,7 @@ async function mount() {
     );
     $('[data-action=save]').title = voice.recording
       ? 'Finish recording before saving'
-      : !selected.length
+      : !hasSelection()
         ? 'Select a target on the page first'
         : !reattaching && !feedback.value.trim()
           ? 'Write or record a note first'
@@ -262,7 +271,7 @@ async function mount() {
     for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
       $<HTMLButtonElement>(`[data-action=${action}]`).disabled = locked;
     $<HTMLButtonElement>('[data-action=cancel]').disabled =
-      locked || (!selected.length && !feedback.value && !reattaching);
+      locked || (!hasSelection() && !feedback.value && !reattaching);
     $<HTMLButtonElement>('[data-action=parent]').disabled ||= voice.recording;
     for (const button of root.querySelectorAll<HTMLButtonElement>(
       '[data-mode]',
@@ -275,8 +284,16 @@ async function mount() {
         locked || (voice.recording && !button.matches('.card-title'));
   }
   function renderSelection() {
-    $('.target').hidden = !selected.length;
-    $('.selection-prompt').hidden = Boolean(selected.length);
+    $('.target').hidden = !hasSelection();
+    $('.selection-prompt').hidden = hasSelection();
+    $('[data-action=parent]').hidden = !selected.length;
+    if (selectionMode === 'page') {
+      $('.target-name').textContent = 'Whole page';
+      $('.excerpt').textContent = 'Feedback about this page as a whole';
+    } else if (regionDraft) {
+      $('.target-name').textContent = 'Selected area';
+      $('.excerpt').textContent = 'Area in this view · visual reference';
+    }
     if (selected.length) {
       $('.target-name').textContent = selected
         .map((el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''))
@@ -307,6 +324,18 @@ async function mount() {
       });
       highlights.append(box);
     };
+    const area = regionPreview || regionDraft;
+    if (area) {
+      const box = document.createElement('div');
+      box.className = 'outline';
+      Object.assign(box.style, {
+        left: area.x + 'px',
+        top: area.y + 'px',
+        width: area.width + 'px',
+        height: area.height + 'px',
+      });
+      highlights.append(box);
+    }
     selected.forEach((el) => {
       const range = quote && rangeForQuote(el, quote.exact);
       if (range)
@@ -393,10 +422,17 @@ async function mount() {
       const title = document.createElement('button');
       title.className = 'card-title';
       title.textContent =
-        a.targets[0].locator.nearbyHeading ||
-        a.targets[0].locator.accessibleName ||
-        'Page element';
-      title.title = a.targets[0].locator.tag + ' · ' + title.textContent;
+        a.targets[0]?.locator.nearbyHeading ||
+        a.targets[0]?.locator.accessibleName ||
+        (a.selectionKind === 'page'
+          ? 'Whole page'
+          : a.selectionKind === 'region'
+            ? 'Selected area'
+            : 'Page element');
+      title.title =
+        (a.targets[0]?.locator.tag || a.selectionKind) +
+        ' · ' +
+        title.textContent;
       title.onclick = () => revisit(a);
       title.setAttribute('aria-label', 'Open note ' + (i + 1));
       const status = document.createElement('span');
@@ -485,25 +521,26 @@ async function mount() {
           renderNotes();
         }),
       );
-      button(
-        'Reattach',
-        () =>
-          act(() =>
-            changeSelection(() => {
-              reattaching = a.id;
-              selectedId = a.id;
-              selected = [];
-              feedback.value = a.originalComment;
-              setReviewing(true);
-              setNotice(
-                'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
-              );
-              renderSelection();
-              renderNotes();
-            }),
-          ),
-        detailActions,
-      );
+      if (a.targets.length)
+        button(
+          'Reattach',
+          () =>
+            act(() =>
+              changeSelection(() => {
+                reattaching = a.id;
+                selectedId = a.id;
+                selected = [];
+                feedback.value = a.originalComment;
+                setReviewing(true);
+                setNotice(
+                  'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
+                );
+                renderSelection();
+                renderNotes();
+              }),
+            ),
+          detailActions,
+        );
       button(
         'Delete',
         () => {
@@ -516,6 +553,7 @@ async function mount() {
               if (selectedId === a.id) clear();
               renderNotes();
               draw();
+              await reviews?.refreshSummary();
             });
         },
         detailActions,
@@ -553,6 +591,8 @@ async function mount() {
       const current = annotations;
       const next = new Map<string, Element[]>();
       for (const a of current) {
+        if (a.selectionKind === 'page' || a.selectionKind === 'region')
+          continue;
         const matches = a.targets.map((target) => matchTarget(target));
         const failure = matches.find((m) => m.state !== 'attached');
         const state = failure?.state || 'attached';
@@ -599,7 +639,18 @@ async function mount() {
   }
   function clear() {
     voice.reset();
+    if (selectionMode === 'page') {
+      selectionMode = 'element';
+      for (const button of root.querySelectorAll<HTMLElement>('[data-mode]'))
+        button.setAttribute(
+          'aria-pressed',
+          String(button.dataset.mode === selectionMode),
+        );
+      $('.hint').textContent = 'Click something you want to change';
+    }
     quote = undefined;
+    regionDraft = undefined;
+    regionPreview = undefined;
     selected = [];
     selectedId = null;
     reattaching = null;
@@ -608,7 +659,10 @@ async function mount() {
   }
   function setReviewing(value: boolean) {
     reviewing = value;
-    shield.hidden = !selectionActive() || selectionMode === 'text';
+    shield.hidden =
+      !selectionActive() ||
+      selectionMode === 'text' ||
+      selectionMode === 'page';
     $('.page-context').classList.toggle('paused', !value);
     $('[data-action=pause]').title = value
       ? 'Pause selection to interact with the page'
@@ -659,7 +713,10 @@ async function mount() {
     if (!value) voice.stop();
     opened = value;
     panel.hidden = !value;
-    shield.hidden = !selectionActive() || selectionMode === 'text';
+    shield.hidden =
+      !selectionActive() ||
+      selectionMode === 'text' ||
+      selectionMode === 'page';
     act(async () => {
       await rpc({ type: 'ENABLED', enabled: value });
     });
@@ -674,7 +731,19 @@ async function mount() {
         }
         selectedId = a.id;
         reattaching = null;
-        quote = a.targets[0].range;
+        quote = a.targets[0]?.range;
+        regionDraft = undefined;
+        if (!a.targets.length) {
+          selected = [];
+          setNotice(
+            a.selectionKind === 'page'
+              ? 'Whole-page feedback. Use Check changes to see the original view.'
+              : 'Area feedback refers to the captured view. Use Check changes to compare it with this page.',
+          );
+          renderSelection();
+          renderNotes();
+          return;
+        }
         const targets = resolved.get(a.id);
         if (!targets?.length || a.status === 'needs-reattachment') {
           selected = [];
@@ -704,7 +773,7 @@ async function mount() {
     updateControls();
     try {
       if (!(await voice.finishDraft())) return;
-      if (!reattaching && selected.length && feedback.value.trim()) {
+      if (!reattaching && hasSelection() && feedback.value.trim()) {
         if (!(await save())) return;
       } else if (!reattaching && selected.length) {
         feedback.value = '';
@@ -729,15 +798,84 @@ async function mount() {
         ) || null
     );
   }
+  let areaStart:
+    { x: number; y: number; scrollX: number; scrollY: number } | undefined;
+  shield.addEventListener('pointerdown', (event) => {
+    if (
+      selectionMode !== 'region' ||
+      !selectionActive() ||
+      busy ||
+      transitioning ||
+      event.button !== 0
+    )
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    areaStart = { x: event.clientX, y: event.clientY, scrollX, scrollY };
+    shield.setPointerCapture(event.pointerId);
+  });
   shield.addEventListener('pointermove', (event) => {
-    if (!selectionActive() || busy) return;
+    if (!areaStart) return;
+    event.stopImmediatePropagation();
+    regionPreview = {
+      x: Math.min(areaStart.x, event.clientX),
+      y: Math.min(areaStart.y, event.clientY),
+      width: Math.abs(event.clientX - areaStart.x),
+      height: Math.abs(event.clientY - areaStart.y),
+    };
+    draw();
+  });
+  shield.addEventListener('pointerup', (event) => {
+    if (!areaStart) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const start = areaStart;
+    areaStart = undefined;
+    if (shield.hasPointerCapture(event.pointerId))
+      shield.releasePointerCapture(event.pointerId);
+    const area = regionPreview;
+    regionPreview = undefined;
+    if (
+      !area ||
+      area.width < 8 ||
+      area.height < 8 ||
+      scrollX !== start.scrollX ||
+      scrollY !== start.scrollY
+    ) {
+      draw();
+      return;
+    }
+    act(() =>
+      changeSelection(() => {
+        regionDraft = area;
+        selected = [];
+        quote = undefined;
+        selectedId = reattaching;
+        renderSelection();
+        feedback.focus();
+      }),
+    );
+  });
+  shield.addEventListener('pointercancel', () => {
+    areaStart = undefined;
+    regionPreview = undefined;
+    draw();
+  });
+  shield.addEventListener('pointermove', (event) => {
+    if (!selectionActive() || busy || selectionMode === 'region') return;
     hovered = underPointer(event.clientX, event.clientY);
     draw();
   });
   shield.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (busy || transitioning || !selectionActive()) return;
+    if (
+      busy ||
+      transitioning ||
+      !selectionActive() ||
+      selectionMode === 'region'
+    )
+      return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
     const multiple = selectionMode === 'multiple' || event.shiftKey;
@@ -748,6 +886,7 @@ async function mount() {
         return;
       }
       quote = undefined;
+      regionDraft = undefined;
       if (multiple) {
         if (selected.includes(element))
           selected = selected.filter((el) => el !== element);
@@ -794,6 +933,13 @@ async function mount() {
         if (!selectionActive()) return;
         const path = event.composedPath();
         if (path.includes(panel) || path.includes(markers)) return;
+        if (selectionMode === 'page') return;
+        if (
+          selectionMode === 'region' &&
+          path.includes(shield) &&
+          type.startsWith('pointer')
+        )
+          return;
         if (
           selectionMode === 'text' &&
           ['pointerdown', 'pointerup', 'mousedown', 'mouseup'].includes(type)
@@ -844,7 +990,7 @@ async function mount() {
         else if (voice.recording) voice.stop();
         else if (settingsOpen && !minimized) showSettings(false);
         else if (minimized) setMinimized(false);
-        else if (selected.length || reattaching) {
+        else if (hasSelection() || reattaching) {
           clear();
           setNotice('Selection cleared.', true);
         } else setOpened(false);
@@ -900,6 +1046,8 @@ async function mount() {
       act(() =>
         changeSelection(() => {
           selectionMode = button.dataset.mode as typeof selectionMode;
+          regionDraft = undefined;
+          regionPreview = undefined;
           selected = [];
           quote = undefined;
           hovered = null;
@@ -910,9 +1058,14 @@ async function mount() {
               ? 'Drag across a passage on the page'
               : selectionMode === 'multiple'
                 ? 'Select up to 12 elements on the page'
-                : 'Select an element on the page';
+                : selectionMode === 'region'
+                  ? 'Drag over an area you want to change'
+                  : selectionMode === 'page'
+                    ? 'Add feedback about the whole page'
+                    : 'Click something you want to change';
           setReviewing(true);
           renderSelection();
+          if (selectionMode === 'page') feedback.focus();
         }),
       );
     };
@@ -945,7 +1098,7 @@ async function mount() {
     if (
       busy ||
       voice.recording ||
-      !selected.length ||
+      !hasSelection() ||
       (!reattaching && !feedback.value.trim())
     )
       return false;
@@ -986,7 +1139,9 @@ async function mount() {
             host,
             root,
             'screenshots/' + id + '-' + Date.now() + '.png',
-            targets.map((target) => target.bounds),
+            regionDraft
+              ? [regionDraft]
+              : targets.map((target) => target.bounds),
           )
         : {
             status: 'unavailable' as const,
@@ -1002,12 +1157,18 @@ async function mount() {
         createdAt: old?.createdAt ?? now,
         updatedAt: now,
         page: currentPage,
-        selectionKind: quote
-          ? 'text-range'
-          : selected.length > 1
-            ? 'multiple'
-            : 'element',
+        selectionKind:
+          selectionMode === 'page'
+            ? 'page'
+            : regionDraft
+              ? 'region'
+              : quote
+                ? 'text-range'
+                : selected.length > 1
+                  ? 'multiple'
+                  : 'element',
         targets,
+        ...(regionDraft ? { region: { ...regionDraft } } : {}),
         screenshot,
         status: old?.resolution ?? 'open',
         resolution: old?.resolution ?? 'open',
@@ -1189,6 +1350,20 @@ async function mount() {
   });
   window.addEventListener('scroll', draw, true);
   window.addEventListener('resize', draw);
+  const invalidateArea = (event: Event) => {
+    if (
+      event.composedPath().includes(panel) ||
+      busy ||
+      transitioning ||
+      !regionDraft
+    )
+      return;
+    regionDraft = undefined;
+    renderSelection();
+    setNotice('The view moved. Select the area again; your draft is kept.');
+  };
+  window.addEventListener('scroll', invalidateArea, true);
+  window.addEventListener('resize', invalidateArea);
   setInterval(() => {
     if (location.href !== lastUrl && !busy && !transitioning) {
       closeClearPage();
@@ -1196,6 +1371,8 @@ async function mount() {
       voice.stop();
       lastUrl = location.href;
       selected = [];
+      regionDraft = undefined;
+      regionPreview = undefined;
       selectedId = null;
       reattaching = null;
       resolved.clear();

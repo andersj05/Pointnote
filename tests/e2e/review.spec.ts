@@ -235,6 +235,82 @@ test('handoff selects open Now notes and preserves exact instructions', async ({
   ).toBeEnabled();
 });
 
+test('page and area notes capture additions without inventing element targets', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/frontend.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Page note', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Give this page a clearer hierarchy.');
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Select area', exact: true }).click();
+  await page.mouse.move(80, 90);
+  await page.mouse.down();
+  await page.mouse.move(300, 240, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('.target-name')).toHaveText('Selected area');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Add a search box here.');
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('area-note.png') });
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await page.reload();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await expect(page.locator('.status.missing')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(
+    new Uint8Array(await readFile((await (await download).path())!)),
+  );
+  const data = JSON.parse(strFromU8(files['feedback.json']));
+  expect(data.annotations.map((a: Annotation) => a.selectionKind)).toEqual([
+    'page',
+    'region',
+  ]);
+  expect(
+    data.annotations.every((a: Annotation) => a.targets.length === 0),
+  ).toBe(true);
+  expect(
+    data.annotations.every(
+      (a: Annotation) => a.screenshot.status === 'available',
+    ),
+  ).toBe(true);
+  expect(data.annotations[1].region).toEqual({
+    x: 80,
+    y: 90,
+    width: 220,
+    height: 150,
+  });
+  expect(strFromU8(files['feedback.md'])).toContain('not a tracked element');
+  expect(strFromU8(files['feedback.json'])).not.toContain('PRIVATE-DRAFT-789');
+});
+
+test('moving the viewport clears an area reference but preserves its draft', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Select area', exact: true }).click();
+  await page.mouse.move(80, 90);
+  await page.mouse.down();
+  await page.mouse.move(300, 240, { steps: 4 });
+  await page.mouse.up();
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Add a section here.');
+  await page.evaluate(() => window.scrollBy(0, 100));
+  await expect(page.getByRole('status')).toContainText('The view moved');
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toHaveValue('Add a section here.');
+  await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
+});
+
 test('backup preview restores deleted notes and preserves existing versions', async ({}, info) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');

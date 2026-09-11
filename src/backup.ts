@@ -145,14 +145,17 @@ function annotation(value: unknown): Annotation {
     attachment = object(a.attachment),
     input = object(a.input);
   if (
-    !['element', 'multiple', 'text-range'].includes(String(a.selectionKind)) ||
+    !['element', 'multiple', 'text-range', 'page', 'region'].includes(
+      String(a.selectionKind),
+    ) ||
     !['open', 'addressed'].includes(String(a.resolution)) ||
     !['attached', 'missing', 'ambiguous'].includes(String(attachment.state)) ||
     !['typed', 'voice'].includes(String(input.method))
   )
     return invalid();
   const targets = list(a.targets, 12).map(target);
-  if (!targets.length) return invalid();
+  if (!targets.length && !['page', 'region'].includes(String(a.selectionKind)))
+    return invalid();
   const originalComment = text(a.originalComment, 20000);
   if (!originalComment.trim()) return invalid();
   let result: Annotation = {
@@ -162,6 +165,7 @@ function annotation(value: unknown): Annotation {
     updatedAt: date(a.updatedAt),
     page: page(a.page),
     selectionKind: a.selectionKind as Annotation['selectionKind'],
+    ...(a.selectionKind === 'region' ? { region: bounds(a.region) } : {}),
     targets,
     screenshot: screenshot(a.screenshot),
     status:

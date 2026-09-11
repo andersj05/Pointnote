@@ -54,6 +54,16 @@ function handoffMarkdown(handoff?: HandoffContext): string[] {
 }
 function reviewMarkdown(note: Annotation): string[] {
   return [
+    ...(note.selectionKind === 'page'
+      ? ['Scope: Whole-page feedback. No specific element was selected.', '']
+      : []),
+    ...(note.selectionKind === 'region' && note.region
+      ? [
+          'Scope: Selected area in the captured viewport. This is a visual reference, not a tracked element; recheck the intended area before editing.',
+          `Captured area (CSS pixels): x=${note.region.x}, y=${note.region.y}, width=${note.region.width}, height=${note.region.height}. Captured viewport: ${note.page.viewport.width} × ${note.page.viewport.height}; scroll: ${note.page.viewport.scrollX}, ${note.page.viewport.scrollY}.`,
+          '',
+        ]
+      : []),
     ...(note.priority === 'later' ? ['Priority: Later', ''] : []),
     ...(note.review
       ? [

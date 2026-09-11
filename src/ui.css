@@ -1275,6 +1275,17 @@ kbd {
 .review-field input[type='file'] {
   font-size: 10px;
 }
+.scope-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  margin: 0 0 6px;
+}
+.scope-tools button[aria-pressed='true'] {
+  background: #e4f1e9;
+  color: #245c3b;
+  border-color: #93b69f;
+}
 .review-field textarea {
   min-height: 65px;
   font-weight: 400;
