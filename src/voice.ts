@@ -34,11 +34,11 @@ export function mountVoice(
 ) {
   container.innerHTML = `<div class="voice-controls"><button class="talk" type="button" data-voice-talk aria-label="Hold to talk" title="Hold middle mouse anywhere, hold this button, or hold Space while focused" aria-describedby="voice-hint" aria-pressed="false">${icon('mic')}<span class="talk-label">Hold to talk</span><span class="talk-key">SPACE</span></button><button class="hands-free" type="button" data-voice-toggle aria-label="Start hands-free recording" title="Click to record hands-free" aria-pressed="false">${icon('record')}</button></div><p class="voice-hint sr-only" id="voice-hint">Select a target, then hold middle mouse to talk.</p>`;
   const settings = options.settings || document.createElement('div');
-  const activity = document.createElement('div');
+  const activity = document.createElement('span');
   activity.className = 'voice-activity';
   activity.hidden = true;
-  activity.innerHTML = `<div class="voice-activity-copy"><span class="voice-activity-label">Voice note</span><strong class="voice-activity-state" aria-live="polite"></strong></div>${voiceWave()}`;
-  container.prepend(activity);
+  activity.innerHTML = `${voiceWave()}<span class="voice-activity-state" aria-live="polite"></span>`;
+  container.querySelector('[data-voice-talk]')!.append(activity);
   const enableMicrophone = document.createElement('button');
   enableMicrophone.type = 'button';
   enableMicrophone.className = 'secondary microphone-setup';

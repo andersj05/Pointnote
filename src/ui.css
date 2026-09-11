@@ -109,7 +109,7 @@ button svg,
 .panel {
   position: fixed;
   border: 1px solid #dce3de;
-  border-radius: 16px;
+  border-radius: 12px;
   background: #fff;
   box-shadow:
     0 16px 54px #15201829,
@@ -125,9 +125,9 @@ button svg,
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 54px;
-  min-height: 54px;
-  padding: 0 10px 0 14px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--line);
 }
 .drag-handle {
@@ -148,8 +148,8 @@ button svg,
 .logo {
   background: #27664d;
   color: #fff;
-  width: 25px;
-  height: 27px;
+  width: 23px;
+  height: 25px;
   display: grid;
   place-items: center;
   border-radius: 7px;
@@ -159,7 +159,7 @@ button svg,
   height: 17px;
 }
 .brand {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.65px;
 }
@@ -201,7 +201,7 @@ button svg,
 .page-context {
   display: flex;
   align-items: center;
-  padding: 10px 20px;
+  padding: 4px 12px;
   gap: 8px;
 }
 .page-title {
@@ -243,7 +243,7 @@ button svg,
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-  padding: 0 20px 20px;
+  padding: 0 12px 12px;
   scrollbar-width: thin;
   scrollbar-color: #cbd0cb transparent;
   overscroll-behavior: contain;
@@ -252,10 +252,10 @@ button svg,
   display: flex;
   background: var(--surface);
   border: 1px solid #edf0ed;
-  border-radius: 10px;
-  padding: 4px;
+  border-radius: 8px;
+  padding: 3px;
   gap: 3px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 .tabs button {
   display: flex;
@@ -268,7 +268,7 @@ button svg,
   background: transparent;
   color: var(--muted);
   font-size: 11px;
-  padding: 8px 0;
+  padding: 5px 0;
   white-space: nowrap;
 }
 .tabs button svg {
@@ -285,23 +285,23 @@ button svg,
   display: flex;
   gap: 9px;
   align-items: center;
-  min-height: 54px;
-  padding: 12px;
+  min-height: 38px;
+  padding: 8px 10px;
   background: var(--surface);
   color: var(--muted);
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   border-radius: 6px;
 }
 .selection-prompt svg {
   color: var(--accent);
 }
 .target {
-  padding: 10px 12px;
+  padding: 5px 10px;
   border-left: 2px solid var(--accent);
   background: #f0f6f2;
-  margin-bottom: 12px;
-  border-radius: 0 10px 10px 0;
+  margin-bottom: 8px;
+  border-radius: 0 6px 6px 0;
 }
 .target-top {
   display: flex;
@@ -326,16 +326,16 @@ button svg,
   font-size: 12px;
   color: #526257;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: 0;
   overflow-wrap: anywhere;
 }
 .composer {
   border: 1px solid #d8ddd8;
-  border-radius: 12px;
-  padding: 0 12px 12px;
+  border-radius: 8px;
+  padding: 0 8px 8px;
 }
 .composer:focus-within {
   border-color: #90b29c;
@@ -345,14 +345,14 @@ textarea {
   display: block;
   width: 100%;
   resize: vertical;
-  min-height: 108px;
-  max-height: 260px;
+  min-height: 76px;
+  max-height: 200px;
   border: 0;
   border-radius: 0;
   background: white;
-  padding: 12px 2px;
+  padding: 9px 2px;
   color: var(--ink);
-  line-height: 1.65;
+  line-height: 1.5;
   font-size: 13px;
 }
 textarea:focus-visible {
@@ -372,60 +372,40 @@ textarea:disabled {
 .voice-activity {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 88px;
-  padding: 16px;
-  margin: 2px 0 10px;
-  border: 1px solid #e4ddf5;
-  border-radius: 16px;
-  background:
-    radial-gradient(ellipse at 95% 0%, #d7f5f4 0%, transparent 65%),
-    radial-gradient(ellipse at 10% 100%, #fce7ef 0%, transparent 65%), #f3f0ff;
-  color: #534878;
-}
-.voice-activity-copy {
+  gap: 8px;
   min-width: 0;
-}
-.voice-activity-label {
-  display: block;
-  color: #78638e;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.7px;
-  text-transform: uppercase;
+  width: 100%;
+  height: 20px;
 }
 .voice-activity-state {
-  display: block;
-  margin-top: 3px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
+  font-size: 11px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.talk.recording > svg,
+.talk.recording .talk-label,
+.talk.recording .talk-key {
+  display: none;
+  letter-spacing: 0;
+  padding: 0 3px;
 }
 .voice-wave {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  height: 48px;
-  flex: 0 1 147px;
-  min-width: 80px;
+  gap: 2px;
+  height: 20px;
+  flex: 0 0 43px;
   overflow: hidden;
-  color: #32835b;
-  mask-image: linear-gradient(
-    90deg,
-    transparent,
-    black 12%,
-    black 88%,
-    transparent
-  );
 }
 .voice-wave > span {
   display: block;
   width: 3px;
   height: 4px;
   border-radius: 8px;
-  background: hsl(var(--wave-hue) 65% 57%);
+  background: var(--accent);
   flex-shrink: 0;
   opacity: 0.55;
 }
@@ -443,7 +423,7 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 12px 0 2px;
+  padding: 4px 0 0;
   border-top: 1px solid var(--line);
 }
 .voice-onboarding > div {
@@ -458,6 +438,7 @@ textarea:disabled {
   font-size: 11px;
   color: var(--muted);
   margin: 2px 0 0;
+  display: none;
 }
 .voice-onboarding .quiet {
   color: var(--accent);
@@ -474,20 +455,22 @@ textarea:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  border-radius: 9px;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: 6px;
   border: 1px solid #dce4de;
   background: #f0f5f1;
   color: #285c3e;
   touch-action: none;
   user-select: none;
+  width: 32px;
+  padding: 6px;
 }
 .talk {
   flex: 1;
-  padding: 8px 11px;
+  padding: 5px 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 .talk-key {
@@ -516,16 +499,16 @@ textarea:disabled {
 .composer-actions {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
   align-items: center;
-  margin-top: 10px;
+  margin-top: 4px;
 }
 .primary,
 .secondary {
   border-radius: 6px;
-  padding: 8px 12px;
-  min-height: 34px;
-  font-size: 12px;
+  padding: 5px 9px;
+  min-height: 30px;
+  font-size: 11px;
   font-weight: 550;
 }
 .primary {
@@ -543,11 +526,11 @@ textarea:disabled {
   font-size: 11px;
   color: #65532b;
   line-height: 1.5;
-  padding: 10px 20px;
+  padding: 6px 12px;
   background: #faf7ef;
   border-top: 1px solid #eee7d6;
   white-space: pre-wrap;
-  max-height: 92px;
+  max-height: 66px;
   overflow: auto;
   overflow-wrap: anywhere;
 }
@@ -555,8 +538,8 @@ textarea:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin: 24px 0 10px;
+  gap: 8px;
+  margin: 12px 0 2px;
 }
 h2 {
   font-size: 12px;
@@ -566,8 +549,8 @@ h2 {
 .notes-heading h2 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 12px;
 }
 .count {
   color: #657065;
@@ -580,18 +563,20 @@ h2 {
   background: transparent;
   font-size: 11px;
   color: var(--muted);
-  max-width: 160px;
+  max-width: 100px;
   min-height: 28px;
   cursor: pointer;
 }
 .search-field {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 4px 6px;
   color: #828980;
+  min-width: 0;
+  flex: 1;
 }
 .search-field svg {
   width: 14px;
@@ -612,17 +597,17 @@ h2 {
   outline: none;
 }
 .empty {
-  padding: 30px 12px 18px;
+  padding: 18px 8px;
   text-align: center;
   color: #707970;
   font-size: 12px;
 }
 .empty svg {
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   display: block;
   color: #a0aaa0;
-  margin: 0 auto 10px;
+  margin: 0 auto 6px;
 }
 .empty span {
   font-weight: 550;
@@ -638,7 +623,7 @@ h2 {
 .card {
   border-bottom: 1px solid var(--line);
   background: white;
-  padding: 16px 0 13px;
+  padding: 8px 0 6px;
 }
 .card.active {
   box-shadow: inset 2px 0 var(--accent);
@@ -685,9 +670,9 @@ h2 {
 .comment {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.65;
-  margin: 9px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 4px 0;
   color: var(--ink);
 }
 .card-actions {
@@ -734,7 +719,7 @@ h2 {
   margin: 5px 0;
 }
 .footer {
-  padding: 12px 20px 16px;
+  padding: 8px 12px 12px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
   background: #fafbfa;
@@ -747,7 +732,7 @@ h2 {
   background: #fff;
   color: var(--ink);
   border: 1px solid #d8ddd8;
-  padding: 10px 12px;
+  padding: 7px 10px;
   font-size: 12px;
   font-weight: 550;
 }
@@ -1012,4 +997,12 @@ kbd {
   .outline {
     border-color: Highlight;
   }
+}
+
+.note-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 72%;
 }

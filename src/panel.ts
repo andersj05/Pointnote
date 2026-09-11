@@ -33,10 +33,10 @@ export function mountPanel(
   const initial = () =>
     fitPanel(
       {
-        x: innerWidth - 406,
+        x: innerWidth - 376,
         y: 16,
-        width: 390,
-        height: Math.min(800, innerHeight - 32),
+        width: 360,
+        height: Math.min(600, innerHeight - 32),
       },
       viewport(),
     );
@@ -56,12 +56,12 @@ export function mountPanel(
     const requestedY = bounds.y;
     bounds = fitPanel(bounds, viewport());
     if (minimized)
-      bounds.y = Math.max(8, Math.min(requestedY, innerHeight - 64));
+      bounds.y = Math.max(8, Math.min(requestedY, innerHeight - 54));
     Object.assign(panel.style, {
       left: bounds.x + 'px',
       top: bounds.y + 'px',
       width: bounds.width + 'px',
-      height: (minimized ? 56 : bounds.height) + 'px',
+      height: (minimized ? 46 : bounds.height) + 'px',
     });
   };
   for (const handle of panel.querySelectorAll<HTMLElement>(

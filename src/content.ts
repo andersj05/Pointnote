@@ -59,8 +59,7 @@ async function mount() {
             <div class="voice-slot"></div>
             <div class="composer-actions"><button class="quiet" type="button" data-action="cancel">Clear</button><button class="primary" type="submit" data-action="save" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>Save note <span aria-hidden="true">↵</span></button></div>
           </form>
-          <div class="notes-heading"><h2>Notes <span class="count">0</span></h2><select class="note-filter" aria-label="Filter notes"><option value="all">All notes</option><option value="open">Open</option><option value="addressed">Addressed</option><option value="needs-reattachment">Needs reattachment</option></select></div>
-          <label class="search-field">${icon('search')}<input type="search" class="note-search" aria-label="Search notes" placeholder="Search notes"></label>
+          <div class="notes-heading"><h2>Notes <span class="count">0</span></h2><div class="note-tools"><label class="search-field">${icon('search')}<input type="search" class="note-search" aria-label="Search notes" placeholder="Search"></label><select class="note-filter" aria-label="Filter notes"><option value="all">All notes</option><option value="open">Open</option><option value="addressed">Addressed</option><option value="needs-reattachment">Needs reattachment</option></select></div></div>
           <div class="notes"></div>
         </div>
       </div>

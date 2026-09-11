@@ -480,7 +480,7 @@ test('panel can move, resize, minimize and restore with layout and settings pers
   expect(resized.width).toBeCloseTo(moved.width + 60, 0);
   expect(resized.height).toBeCloseTo(moved.height - 60, 0);
   await page.getByRole('button', { name: 'Minimize Pointnote' }).click();
-  expect((await panel.boundingBox())!.height).toBe(56);
+  expect((await panel.boundingBox())!.height).toBe(46);
   await page.locator('#complete-task').click();
   await expect(page.locator('#project-status')).toHaveText('2 task completed');
   await page.getByRole('button', { name: 'Restore Pointnote' }).click();
