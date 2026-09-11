@@ -70,6 +70,38 @@ async function save(page: Page, comment: string, count: number) {
     'Saved locally, with a screenshot.',
   );
 }
+async function simulateSpeech(page: Page) {
+  const cdp = await context.newCDPSession(page);
+  const worlds: { id: number; origin: string }[] = [];
+  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+    worlds.push(world),
+  );
+  await cdp.send('Runtime.enable');
+  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
+  const evaluate = (expression: string) =>
+    cdp.send('Runtime.evaluate', { contextId: world.id, expression });
+  await evaluate(`
+    globalThis.speechStarts = 0;
+    globalThis.speechDenied = false;
+    globalThis.speechPending = false;
+    globalThis.SpeechRecognition = class {
+      static available() {
+        return globalThis.speechPending
+          ? new Promise(resolve => { globalThis.resolveSpeech = resolve; })
+          : Promise.resolve('available');
+      }
+      processLocally = true;
+      start() {
+        globalThis.speechStarts++;
+        if (globalThis.speechDenied) this.onerror?.({ error: 'not-allowed' });
+        else this.onresult?.({ results: [{ isFinal: true, 0: { transcript: 'Add supporting evidence.' } }] });
+      }
+      stop() { this.onend?.(); }
+      abort() { this.onend?.(); }
+    };
+  `);
+  return { evaluate, close: () => cdp.detach() };
+}
 test.beforeEach(async () => {
   profile = await mkdtemp(join(tmpdir(), 'pointnote-test-'));
   context = await launch();
@@ -488,7 +520,13 @@ test('notes can be searched and filtered without changing the export, and keyboa
   await expect(
     page.getByText('No matching notes', { exact: true }),
   ).toBeVisible();
-  await page.getByRole('searchbox', { name: 'Search notes' }).fill('');
+  await page
+    .getByRole('button', { name: 'Clear filters', exact: true })
+    .click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await expect(
+    page.getByRole('searchbox', { name: 'Search notes' }),
+  ).toBeFocused();
   await page.screenshot({ path: info.outputPath('notes-workspace.png') });
 });
 
@@ -550,4 +588,175 @@ test('hands-free recording toggles and stops when leaving the workspace', async 
   await page.getByRole('button', { name: 'Save note' }).click();
   await expect(page.locator('.card')).toHaveCount(1);
   await cdp.detach();
+});
+
+test('middle mouse records the selected target from anywhere and keeps an editable draft', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const speech = await simulateSpeech(page);
+  await page.mouse.click(100, 160, { button: 'middle' });
+  await expect(page.getByRole('status')).toContainText('Select a target');
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(0);
+  await select(page, '#evidence-claim');
+  const feedback = page.getByRole('textbox', { name: 'Your feedback' });
+  await feedback.fill('My written context.');
+  await page.mouse.move(90, 250);
+  await page.mouse.down({ button: 'middle' });
+  await expect(feedback).toHaveValue(
+    'My written context.\nAdd supporting evidence.',
+  );
+  await expect(feedback).toBeDisabled();
+  await expect(page.locator('.recording-toast')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
+  await expect(page.locator('.target-name')).toHaveText('p#evidence-claim');
+  await page.screenshot({ path: info.outputPath('middle-recording.png') });
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('recording-panel.png') });
+  // Release over the panel after starting on the page, without moving the target.
+  const panel = (await page.locator('.panel').boundingBox())!;
+  await page.mouse.move(panel.x + 30, panel.y + 100);
+  await page.mouse.up({ button: 'middle' });
+  await expect(feedback).toBeEnabled();
+  await expect(page.locator('.recording-toast')).toBeHidden();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page.mouse.down({ button: 'middle' });
+  await expect(feedback).toHaveValue(
+    'My written context.\nAdd supporting evidence.\nAdd supporting evidence.',
+  );
+  await page.mouse.up({ button: 'middle' });
+  await save(page, 'Please cite the study supporting this claim.', 1);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  const files = unzipSync(
+    new Uint8Array(await readFile((await (await download).path())!)),
+  );
+  const note = JSON.parse(strFromU8(files['feedback.json'])).annotations[0];
+  expect(note.targets[0].locator.id).toBe('evidence-claim');
+  expect(note.originalComment).toBe(
+    'Please cite the study supporting this claim.',
+  );
+  expect(note.input.transcript).toBe(
+    'Add supporting evidence. Add supporting evidence.',
+  );
+  await speech.close();
+});
+
+test('middle mouse respects text selections and preserves normal links when selection is paused', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const speech = await simulateSpeech(page);
+  await page.getByRole('button', { name: 'Text range', exact: true }).click();
+  const rect = await page.locator('#evidence-claim').evaluate((el) => {
+    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const range = document.createRange();
+    range.setStart(
+      el.firstChild!,
+      el.firstChild!.textContent!.indexOf('Teams'),
+    );
+    range.setEnd(
+      el.firstChild!,
+      el.firstChild!.textContent!.indexOf('workspace') + 9,
+    );
+    const r = range.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  await page.mouse.move(rect.x + 1, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rect.x + rect.width - 1, rect.y + rect.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await expect(page.locator('.excerpt')).toContainText('focused workspace');
+  const quote = await page.locator('.excerpt').textContent();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const link = page.locator('a.wordmark');
+  const box = (await link.boundingBox())!;
+  // In text mode the real link receives hit-testing; the shortcut must suppress
+  // both autoscroll and the auxiliary click without replacing the text range.
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down({ button: 'middle' });
+  await expect(page.locator('.recording-toast')).toBeVisible();
+  await page.mouse.up({ button: 'middle' });
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toBeEnabled();
+  await expect(page.locator('.excerpt')).toHaveText(quote!);
+  expect(context.pages()).toHaveLength(2);
+  await page.getByRole('button', { name: 'Pause selection' }).click();
+  const newTab = context.waitForEvent('page');
+  await link.click({ button: 'middle' });
+  await (await newTab).close();
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(1);
+  await page.getByRole('button', { name: 'Resume selection' }).click();
+  await page
+    .getByRole('button', { name: 'Start hands-free recording' })
+    .click();
+  await page.mouse.click(100, 160, { button: 'middle' });
+  await expect(
+    page.getByRole('button', { name: 'Stop recording', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toBeEnabled();
+  await speech.close();
+});
+
+test('middle recording cancels safely and recovers from delayed startup and microphone denial', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  const speech = await simulateSpeech(page);
+  const feedback = page.getByRole('textbox', { name: 'Your feedback' });
+  await feedback.fill('Keep this draft.');
+  await speech.evaluate('speechPending = true');
+  await page.mouse.move(90, 250);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.up({ button: 'middle' });
+  await expect(feedback).toBeEnabled();
+  await speech.evaluate("resolveSpeech('available'); speechPending = false");
+  await expect(feedback).toBeEnabled();
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(0);
+  await expect(feedback).toHaveValue('Keep this draft.');
+  await speech.evaluate('speechDenied = true');
+  await page.mouse.down({ button: 'middle' });
+  await expect(page.getByRole('status')).toContainText(
+    'Microphone access was denied',
+  );
+  await page.mouse.up({ button: 'middle' });
+  await expect(feedback).toBeEnabled();
+  await expect(feedback).toHaveValue('Keep this draft.');
+  await speech.evaluate('speechDenied = false');
+  for (const action of [
+    'escape',
+    'blur',
+    'settings',
+    'minimize',
+    'pause',
+    'close',
+  ]) {
+    await page.mouse.move(90, 250);
+    await page.mouse.down({ button: 'middle' });
+    await expect(page.locator('.recording-toast')).toBeVisible();
+    if (action === 'escape') await page.keyboard.press('Escape');
+    else if (action === 'blur')
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    else await page.locator(`[data-action="${action}"]`).click();
+    await page.mouse.up({ button: 'middle' });
+    await expect(page.locator('.recording-toast')).toBeHidden();
+    if (action === 'settings')
+      await page.getByRole('button', { name: 'Back to notes' }).click();
+    if (action === 'minimize')
+      await page.getByRole('button', { name: 'Restore Pointnote' }).click();
+    if (action === 'pause')
+      await page.getByRole('button', { name: 'Resume selection' }).click();
+  }
+  const starts = (await speech.evaluate('speechStarts')).result.value;
+  await page.mouse.click(100, 160, { button: 'middle' });
+  expect((await speech.evaluate('speechStarts')).result.value).toBe(starts);
+  await speech.close();
 });

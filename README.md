@@ -37,10 +37,11 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 - **Element:** hover to preview, click to select, then use **↑ Parent** to include a larger container. Headings, paragraphs, links, buttons, images, SVG/chart containers, and sections are supported.
 - **Text range:** drag across a unique passage inside one section. Its exact quote and surrounding text are retained. Text ranges are limited to 1,600 characters.
 - **Multiple:** click to add/remove up to 12 elements. Shift-click also adds/removes elements in element mode.
-- Type a note, or use the large **Hold to talk** button. The adjacent record button starts **hands-free recording**; click Stop when done. Read and edit the transcript before choosing **Save note**, or press **Ctrl+Enter** (**Cmd+Enter** on macOS).
+- Type a note, or select your target and **hold the middle mouse button (press the scroll wheel)** anywhere on the page or panel to talk. Release to finish. This uses your current selection, including text ranges and multiple targets; it never changes the target under your cursor. A recording indicator stays visible on the page.
+- The large **Hold to talk** button and **Space** while it is focused also work. The adjacent record button starts **hands-free recording**; click Stop when done. Read and edit the transcript before choosing **Save note**, or press **Ctrl+Enter** (**Cmd+Enter** on macOS). Releasing a hold leaves an editable draft; it does not save automatically.
 - Numbered markers and sidebar cards revisit the target. **Mark addressed** / **Reopen** track progress. Missing or ambiguous targets show **Reattach**. Reattachment preserves the original comment and previous target context.
 - Search notes or filter by open, addressed, or reattachment status. Exports always include all notes on the current page.
-- **Pause selection** restores normal page interaction while keeping notes visible. **×** closes the review UI. **Esc** stops recording, returns from settings, restores a minimized panel, or clears a selection before closing the UI.
+- **Pause selection** restores normal page interaction while keeping notes visible. The middle mouse shortcut is active only while selection is on; normal middle-click behavior returns while paused, in settings, minimized, or closed. **×** closes the review UI. **Esc** stops recording, returns from settings, restores a minimized panel, or clears a selection before closing the UI.
 - Drag the title bar to move the panel; drag either bottom corner to resize it. The dock icon beside the page title moves it to the opposite side. Focus the title bar or a resize handle and use arrow keys for keyboard adjustments; hold Shift for larger steps.
 - **Minimize** keeps a compact title bar available and restores normal page use. Restore it to continue your draft.
 - Open **Settings** with the gear icon for screenshots, voice, language, and **Reset layout**. Turning off **Include screenshots** still saves notes with an explicit unavailable reason. Settings and panel position/size are remembered locally; the panel stays within the current window.
@@ -72,7 +73,7 @@ The optional **Browser service** provider may send audio to the browser vendor's
 
 The original saved comment is the text you approve after editing. The unedited recognition transcript is retained separately in `input.transcript`. The provider interface is replaceable.
 
-Provider and language preferences are remembered, but browser-service consent must be given again after a page reload. Recording stops when you open settings, minimize or close the panel, switch away from the tab, or press Escape.
+Provider and language preferences are remembered, but browser-service consent must be given again after a page reload. Recording stops when you pause selection, open settings, minimize or close the panel, switch away from the tab or window, or press Escape. Releasing during startup cancels that recording immediately; delayed startup or transcript callbacks cannot overwrite your next edits.
 
 Read [privacy and data handling](docs/privacy.md) before reviewing sensitive material.
 

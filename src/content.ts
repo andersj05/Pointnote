@@ -5,6 +5,7 @@ import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
 import { mountVoice } from './voice';
+import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
 import { mountPanel } from './panel';
@@ -36,6 +37,7 @@ async function mount() {
   const shell = document.createElement('div');
   shell.innerHTML = `
     <div class="shield" aria-hidden="true"></div><div class="highlights"></div><div class="markers"></div>
+    <div class="recording-toast" aria-hidden="true" hidden>${icon('mic')}<span><strong>Recording your note</strong><span>Release middle mouse to finish</span></span><kbd>Esc to stop</kbd></div>
     <aside class="panel" aria-label="Pointnote review">
       <header class="top">
         <button class="drag-handle" data-panel-handle="move" aria-label="Move panel" title="Drag to move · arrow keys to nudge"><span class="logo" aria-hidden="true">${icon('note')}</span><span class="brand">pointnote</span><span class="drag-dots">${icon('grip')}</span></button>
@@ -65,7 +67,7 @@ async function mount() {
           <section class="settings-section"><h2>Capture</h2><label class="setting-toggle"><span>Include screenshots<span class="setting-description">Form fields and private areas are masked.</span></span><input type="checkbox" class="include-screenshot" role="switch"></label></section>
           <section class="settings-section"><h2>Voice</h2><div class="voice-preferences"></div></section>
           <section class="settings-section"><h2>Workspace</h2><div class="setting-row"><span>Panel position &amp; size</span><button class="secondary" data-action="reset-layout">Reset layout</button></div><p class="setting-description">Drag the title bar to move. Drag either bottom corner to resize.</p></section>
-          <section class="settings-section shortcuts"><h2>Keyboard shortcuts</h2><div><span>Save note</span><kbd>Ctrl / ⌘ + Enter</kbd></div><div><span>Hold to talk, when focused</span><kbd>Space</kbd></div><div><span>Cancel selection / go back</span><kbd>Esc</kbd></div><div><span>Move or resize, when focused</span><kbd>Arrow keys</kbd></div></section>
+          <section class="settings-section shortcuts"><h2>Shortcuts</h2><div><span>Hold to talk, selection on</span><kbd>Middle mouse</kbd></div><div><span>Save note</span><kbd>Ctrl / ⌘ + Enter</kbd></div><div><span>Hold to talk, when focused</span><kbd>Space</kbd></div><div><span>Cancel selection / go back</span><kbd>Esc</kbd></div><div><span>Move or resize, when focused</span><kbd>Arrow keys</kbd></div></section>
           <p class="local-note"><span class="dot"></span>Notes stay in this browser. No audio is stored.</p>
         </div>
       </section>
@@ -142,6 +144,7 @@ async function mount() {
       if (!selected.length)
         setNotice('Select a target before recording feedback.');
       return (
+        opened &&
         !busy &&
         !reattaching &&
         !settingsOpen &&
@@ -152,12 +155,25 @@ async function mount() {
     onState: updateControls,
     notice: setNotice,
   });
+  mountVoiceShortcut({
+    enabled: () => selectionActive() && !busy && !reattaching,
+    start: () => voice.start('middle'),
+    release: () => voice.release('middle'),
+  });
   const act = (action: () => Promise<void>) => {
     void action().catch((error: unknown) =>
       setNotice(error instanceof Error ? error.message : String(error)),
     );
   };
   function updateControls() {
+    $('.recording-toast').hidden = !voice.middleRecording || !selectionActive();
+    const voiceHint = $('.voice-hint');
+    voiceHint.textContent = !selected.length
+      ? 'Select a target, then hold middle mouse to talk.'
+      : !reviewing
+        ? 'Resume selection to use the middle mouse shortcut.'
+        : 'Hold middle mouse anywhere to talk about this selection.';
+    voiceHint.classList.toggle('ready', Boolean(selected.length && reviewing));
     $<HTMLButtonElement>('[data-action=save]').disabled =
       busy ||
       voice.recording ||
@@ -174,6 +190,13 @@ async function mount() {
       : reattaching
         ? 'Attach here'
         : 'Save note';
+    $('[data-action=save]').title = voice.recording
+      ? 'Finish recording before saving'
+      : !selected.length
+        ? 'Select a target on the page first'
+        : !reattaching && !feedback.value.trim()
+          ? 'Write or record a note first'
+          : 'Save note · Ctrl+Enter or ⌘+Enter';
     feedback.disabled = busy || voice.recording || Boolean(reattaching);
     for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
       $<HTMLButtonElement>(`[data-action=${action}]`).disabled = busy;
@@ -383,7 +406,17 @@ async function mount() {
     if (annotations.length && !list.childElementCount) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.textContent = 'No matching notes';
+      empty.innerHTML = `${icon('search')}<span>No matching notes</span><p>Try another search or show all notes.</p>`;
+      const reset = document.createElement('button');
+      reset.className = 'secondary';
+      reset.textContent = 'Clear filters';
+      reset.onclick = () => {
+        $<HTMLInputElement>('.note-search').value = '';
+        $<HTMLSelectElement>('.note-filter').value = 'all';
+        renderNotes();
+        $('.note-search').focus();
+      };
+      empty.append(reset);
       list.append(empty);
     }
     updateControls();
@@ -455,6 +488,7 @@ async function mount() {
       ? 'Pause selection'
       : 'Resume selection';
     if (!value) hovered = null;
+    updateControls();
     draw();
   }
   function selectionActive() {
