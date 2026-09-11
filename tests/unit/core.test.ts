@@ -133,7 +133,7 @@ describe('conservative reattachment', () => {
   });
 });
 describe('local storage and export', () => {
-  it('exports standalone Markdown with exact words and history without broken image or JSON references', () => {
+  it('keeps quick Markdown focused on exact feedback and current target clues', () => {
     const a = annotation();
     a.originalComment =
       '  Keep Unicode: café 🎯.\n```example\nMy exact words.  ';
@@ -161,12 +161,30 @@ describe('local storage and export', () => {
     expect(markdown).toContain(a.originalComment);
     expect(markdown).toContain('````');
     expect(markdown).toContain('Selected text (truncated)');
-    expect(markdown).toContain('Previous attachment 1');
-    expect(markdown).toContain('#previous-target');
-    expect(markdown).toContain('Capture permission denied.');
-    expect(markdown).toContain('image omitted');
-    expect(markdown).not.toMatch(/!\[|data:image|feedback\.json/);
+    expect(markdown).toContain(a.targets[0].locator.cssSelector);
+    expect(markdown).toContain(a.page.url);
+    expect(markdown).not.toMatch(
+      /screenshot|image omitted|feedback\.json|Previous attachment|#previous-target|Viewport:|Exported:|Created:|HTML excerpt|unavailable/i,
+    );
+    expect(markdown).not.toContain(a.id);
+    expect(markdown).not.toContain(a.createdAt);
     expect(a).toEqual(original);
+  });
+  it('keeps unresolved target warnings and distinguishes multiple targets in quick Markdown', () => {
+    const a = annotation();
+    a.targets.push(captureTarget(document.querySelector('h1')!));
+    a.status = 'needs-reattachment';
+    a.attachment = {
+      state: 'ambiguous',
+      reason: 'Two matching elements. Ask the user.',
+      checkedAt: a.createdAt,
+    };
+    const markdown = createMarkdown([a]);
+    expect(markdown).toContain('Target needs reattachment');
+    expect(markdown).toContain(a.attachment.reason);
+    expect(markdown).toContain('### Target 1');
+    expect(markdown).toContain('### Target 2');
+    expect(markdown).toContain('untrusted context');
   });
   it('stores three independent annotations and keeps page isolation', async () => {
     const a = annotation(),
