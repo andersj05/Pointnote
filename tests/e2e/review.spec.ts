@@ -218,6 +218,7 @@ test('three report comments persist across reload and browser restart, export, a
   await expect(page.locator('.card')).toHaveCount(3);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const saved = await download;
   const exportPath = info.outputPath('feedback.zip');
   await saved.saveAs(exportPath);
@@ -280,6 +281,7 @@ test('localhost controls are blocked during review, normal when paused, with san
   await save(page, 'Give the note field more breathing room.', 2);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -377,6 +379,7 @@ test('multiple selection, precise text ranges, and editable voice transcripts', 
   await save(page, 'This needs more proof. Add a citation.', 3);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -406,9 +409,7 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
     .fill('Keep this exact note.');
   await page.getByRole('button', { name: 'Save note' }).click();
   await expect(page.locator('.card')).toHaveCount(1);
-  await expect(page.getByRole('status')).toContainText(
-    'Screenshot capture disabled by the user.',
-  );
+  await expect(page.getByRole('status')).toContainText('Saved locally.');
   await page
     .locator('.card')
     .getByRole('button', { name: 'Mark addressed' })
@@ -421,6 +422,7 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
   await expect(page.locator('.status.missing')).toHaveCount(1);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -480,7 +482,7 @@ test('panel can move, resize, minimize and restore with layout and settings pers
   expect(resized.width).toBeCloseTo(moved.width + 60, 0);
   expect(resized.height).toBeCloseTo(moved.height - 60, 0);
   await page.getByRole('button', { name: 'Minimize Pointnote' }).click();
-  expect((await panel.boundingBox())!.height).toBe(56);
+  expect((await panel.boundingBox())!.height).toBe(46);
   await page.locator('#complete-task').click();
   await expect(page.locator('#project-status')).toHaveText('2 task completed');
   await page.getByRole('button', { name: 'Restore Pointnote' }).click();
@@ -569,6 +571,7 @@ test('notes can be searched and filtered without changing the export, and keyboa
   await expect(page.locator('.card')).toHaveCount(1);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -671,9 +674,7 @@ for (const gesture of ['button', 'middle'] as const) {
       'data-voice-phase',
       'starting',
     );
-    await expect(page.locator('.voice-activity-state')).toHaveText(
-      'Opening microphone…',
-    );
+    await expect(page.locator('.voice-activity-state')).toHaveText('Starting…');
     await expect
       .poll(async () => (await speech.evaluate('speechStarts')).result.value)
       .toBe(1);
@@ -684,30 +685,32 @@ for (const gesture of ['button', 'middle'] as const) {
     );
     await expect(page.locator('.voice-wave')).toHaveCount(1);
     await expect(page.locator('.recording-toast')).toHaveCount(0);
-    const bar = page.locator('.voice-activity .voice-wave > span').first();
-    await expect
-      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
-      .toBe('none');
+    const wave = page.locator('.voice-wave');
+    const curve = wave.locator('.wave-front');
+    await expect(wave).toHaveAttribute('data-motion', 'still');
     await speech.evaluate('activeSpeech.onspeechstart()');
-    await expect
-      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
-      .toBe('voice-wave');
+    await expect(wave).toHaveAttribute('data-motion', 'running');
+    const firstShape = await curve.getAttribute('d');
+    await expect.poll(() => curve.getAttribute('d')).not.toBe(firstShape);
+    await expect(wave.locator('path')).toHaveCount(4);
     await page.screenshot({ path: info.outputPath('voice-wave.png') });
     await page
       .locator('.panel')
       .screenshot({ path: info.outputPath('voice-panel.png') });
     await speech.evaluate('activeSpeech.onspeechend()');
-    await expect
-      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
-      .toBe('none');
+    await expect(wave).toHaveAttribute('data-motion', 'still');
     await speech.evaluate('activeSpeech.onspeechstart()');
-    await expect
-      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
-      .toBe('voice-wave');
+    await expect(wave).toHaveAttribute('data-motion', 'running');
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await expect
-      .poll(() => bar.evaluate((el) => getComputedStyle(el).animationName))
-      .toBe('none');
+    await expect(wave).toHaveAttribute('data-motion', 'still');
+    expect(
+      await curve.evaluate(async (el) => {
+        const shape = el.getAttribute('d');
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        return el.getAttribute('d') === shape;
+      }),
+    ).toBe(true);
     await page.setViewportSize({ width: 320, height: 640 });
     const activity = page.locator('.voice-activity');
     expect(
@@ -995,6 +998,7 @@ test('middle mouse records the selected target from anywhere and keeps an editab
   await save(page, 'Please cite the study supporting this claim.', 1);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export feedback' }).click();
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
   const files = unzipSync(
     new Uint8Array(await readFile((await (await download).path())!)),
   );
@@ -1134,4 +1138,346 @@ test('middle recording cancels safely and recovers from delayed startup and micr
   await page.mouse.click(100, 160, { button: 'middle' });
   expect((await speech.evaluate('speechStarts')).result.value).toBe(starts);
   await speech.close();
+});
+
+test('switching targets autosaves exact drafts and keeps selection refinements together', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await select(page, '#evidence-claim');
+  const words = '  Keep these exact words.\nAdd the source.  ';
+  await draft.fill(words);
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .comment')).toHaveText(words);
+  await expect(page.locator('.target-name')).toContainText('retention-chart');
+  await expect(draft).toHaveValue('');
+  await draft.fill('Label the comparison.');
+  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await expect(page.locator('.target-name')).toContainText('evidence-claim');
+  await expect(draft).toHaveValue('');
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Multiple', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await draft.fill('Compare these together.');
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(2);
+  await expect(draft).toHaveValue('Compare these together.');
+  await page.getByRole('button', { name: 'Text range', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(3);
+  await expect(draft).toHaveValue('');
+  await page.reload();
+  await expect(page.locator('.card')).toHaveCount(3);
+  await expect(page.locator('.card .comment').first()).toHaveText(words);
+});
+
+test('switching during recording waits for final words and saves to the original target once', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const speech = await simulateSpeech(page);
+  await speech.evaluate('speechOnRelease = true');
+  await select(page, '#evidence-claim');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Written context.');
+  const composerHeight = (await page.locator('.composer').boundingBox())!
+    .height;
+  await page
+    .getByRole('button', { name: 'Start hands-free recording' })
+    .click();
+  await expect(page.locator('.voice-slot')).toHaveAttribute(
+    'data-voice-phase',
+    'listening',
+  );
+  expect((await page.locator('.composer').boundingBox())!.height).toBe(
+    composerHeight,
+  );
+  expect(
+    (await page.locator('.voice-activity').boundingBox())!.height,
+  ).toBeLessThanOrEqual(28);
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('compact-recording.png') });
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .comment')).toHaveText(
+    'Written context.\nFinal words from the microphone.',
+  );
+  await expect(page.locator('.target-name')).toContainText('retention-chart');
+  await expect(draft).toHaveValue('');
+  await draft.fill('A separate typed note.');
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.locator('.card')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await expect(page.locator('.target-name')).toContainText('evidence-claim');
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('compact-notes.png') });
+  await speech.close();
+});
+
+async function inContentWorld(page: Page, expression: string) {
+  const cdp = await context.newCDPSession(page);
+  const worlds: { id: number; origin: string }[] = [];
+  cdp.on('Runtime.executionContextCreated', ({ context: world }) =>
+    worlds.push(world),
+  );
+  await cdp.send('Runtime.enable');
+  const world = worlds.find((w) => w.origin.startsWith('chrome-extension://'))!;
+  const result = await cdp.send('Runtime.evaluate', {
+    contextId: world.id,
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  await cdp.detach();
+  expect(result.exceptionDetails).toBeUndefined();
+  return result.result.value;
+}
+
+test('failed autosave preserves the draft and target, and retry saves only once', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Do not lose this draft.');
+  await inContentWorld(
+    page,
+    `
+    globalThis.originalSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = (message, ...args) => message.type === 'PUT'
+      ? Promise.resolve({ ok: false, error: 'Simulated storage failure.' })
+      : globalThis.originalSendMessage(message, ...args);
+  `,
+  );
+  await select(page, '#retention-chart');
+  await expect(page.getByRole('status')).toContainText(
+    'Your draft and target have been kept',
+  );
+  await expect(draft).toHaveValue('Do not lose this draft.');
+  await expect(page.locator('.target-name')).toContainText('evidence-claim');
+  await expect(page.locator('.card')).toHaveCount(0);
+  await inContentWorld(
+    page,
+    'chrome.runtime.sendMessage = globalThis.originalSendMessage',
+  );
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(draft).toHaveValue('');
+  await expect(page.locator('.target-name')).toContainText('retention-chart');
+});
+
+test('export offers clipboard, standalone Markdown and ZIP, including the unsaved last note', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/frontend.html');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: 'http://127.0.0.1:4173',
+  });
+  await activate(page);
+  const exportButton = page.getByRole('button', { name: 'Export feedback' });
+  await expect(exportButton).toBeDisabled();
+  await select(page, 'textarea[aria-label="Private draft"]');
+  const words = '  Keep café and 🎯.\n```code\nExplain this field.  ';
+  await page.getByRole('textbox', { name: 'Your feedback' }).fill(words);
+  await exportButton.click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.getByRole('menuitem')).toHaveCount(3);
+  await expect(
+    page.getByRole('menuitem', { name: 'Copy Markdown to clipboard' }),
+  ).toBeFocused();
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('export-menu.png') });
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    page.getByRole('menuitem', { name: 'Save Markdown file' }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(exportButton).toBeFocused();
+  await exportButton.click();
+  await page
+    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Markdown copied');
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard.replaceAll('\r\n', '\n')).toContain(words);
+  expect(clipboard).not.toMatch(
+    /screenshot|!\[|data:image|feedback\.json|Viewport:|Exported:|Created:/i,
+  );
+  await exportButton.click();
+  const markdownDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Save Markdown file' }).click();
+  const markdownFile = await markdownDownload;
+  expect(markdownFile.suggestedFilename()).toMatch(/\.md$/);
+  const markdown = await readFile((await markdownFile.path())!, 'utf8');
+  expect(markdown).toContain(words);
+  expect(markdown).not.toMatch(
+    /screenshot|!\[|data:image|feedback\.json|Viewport:|Exported:|Created:/i,
+  );
+  expect(markdown).not.toContain('PRIVATE-DRAFT-789');
+  await exportButton.click();
+  const zipDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Save ZIP file' }).click();
+  const zipFile = await zipDownload;
+  expect(zipFile.suggestedFilename()).toMatch(/\.zip$/);
+  const files = unzipSync(
+    new Uint8Array(await readFile((await zipFile.path())!)),
+  );
+  const data = JSON.parse(strFromU8(files['feedback.json']));
+  expect(data.annotations).toHaveLength(1);
+  expect(data.annotations[0].originalComment).toBe(words);
+  expect(data.annotations[0].screenshot.status).toBe('available');
+  expect(files[data.annotations[0].screenshot.path]).toBeDefined();
+  expect(strFromU8(files['feedback.md'])).toContain('![Target in context]');
+});
+
+test('clipboard denial offers Markdown download without claiming success or losing notes', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Use the source.');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  await inContentWorld(
+    page,
+    `
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('Denied')) } });
+    document.execCommand = () => false;
+  `,
+  );
+  await page
+    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .click();
+  await expect(page.getByRole('status')).toContainText(
+    'Choose Save Markdown file instead',
+  );
+  await expect(page.locator('.card')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Save Markdown file' }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.md$/);
+});
+
+test('clipboard fallback copies Markdown when the page has no Clipboard API', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: 'http://127.0.0.1:4173',
+  });
+  await activate(page);
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Copy through the fallback.');
+  await page.getByRole('button', { name: 'Export feedback' }).click();
+  await inContentWorld(
+    page,
+    "Object.defineProperty(navigator, 'clipboard', { value: undefined })",
+  );
+  await page
+    .getByRole('menuitem', { name: 'Copy Markdown to clipboard' })
+    .click();
+  await expect(page.getByRole('status')).toContainText('Markdown copied');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+    'Copy through the fallback.',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Export feedback' }),
+  ).toBeFocused();
+});
+
+test('clear all notes confirms page scope, preserves drafts, and recovers from failure', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  const clearAll = page.getByRole('button', {
+    name: 'Clear all notes for this page',
+  });
+  await expect(clearAll).toBeDisabled();
+  await select(page, '#evidence-claim');
+  await save(page, 'Add a source.', 1);
+  await select(page, '#retention-chart');
+  await save(page, 'Label this chart.', 2);
+  const other = await context.newPage();
+  await other.goto('http://127.0.0.1:4173/frontend.html');
+  await activate(other);
+  await select(other, '#complete-task');
+  await save(other, 'Keep this other page note.', 1);
+  await page.bringToFront();
+  await select(page, '#evidence-claim');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Keep my unsaved draft.');
+  await page.getByRole('searchbox', { name: 'Search notes' }).fill('chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await clearAll.click();
+  await expect(
+    page.getByRole('group', { name: 'Clear page notes', exact: true }),
+  ).toContainText('all 2 saved notes on this page');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(draft).toHaveValue('Keep my unsaved draft.');
+  await clearAll.click();
+  await page
+    .locator('.panel')
+    .screenshot({ path: info.outputPath('clear-page.png') });
+  await inContentWorld(
+    page,
+    `
+    globalThis.originalSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = (message, ...args) => message.type === 'DELETE_PAGE'
+      ? Promise.resolve({ ok: false, error: 'Simulated delete failure.' })
+      : globalThis.originalSendMessage(message, ...args);
+  `,
+  );
+  await page.getByRole('button', { name: 'Delete notes', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'Simulated delete failure',
+  );
+  await expect(page.locator('.count')).toHaveText('2');
+  await expect(draft).toHaveValue('Keep my unsaved draft.');
+  await inContentWorld(
+    page,
+    'chrome.runtime.sendMessage = globalThis.originalSendMessage',
+  );
+  await page.getByRole('button', { name: 'Delete notes', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await expect(page.locator('.marker')).toHaveCount(0);
+  await expect(clearAll).toBeDisabled();
+  await expect(draft).toHaveValue('Keep my unsaved draft.');
+  await page.reload();
+  await expect(page.locator('.count')).toHaveText('0');
+  await other.bringToFront();
+  await other.reload();
+  await expect(other.locator('.card')).toHaveCount(1);
+  await expect(other.locator('.comment')).toHaveText(
+    'Keep this other page note.',
+  );
+});
+
+test('Parent refines a written draft without submitting the compact composer', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await select(page, '#recommendation-cards article:first-child');
+  const draft = page.getByRole('textbox', { name: 'Your feedback' });
+  await draft.fill('Simplify these cards together.');
+  await page.getByRole('button', { name: '↑ Parent' }).click();
+  await expect(page.locator('.target-name')).toContainText(
+    'recommendation-cards',
+  );
+  await expect(draft).toHaveValue('Simplify these cards together.');
+  await expect(page.locator('.card')).toHaveCount(0);
+  await select(page, '#retention-chart');
+  await expect(page.locator('.card')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await expect(page.locator('.target-name')).toContainText(
+    'recommendation-cards',
+  );
 });

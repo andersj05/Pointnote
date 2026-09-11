@@ -81,6 +81,7 @@ export type Request =
   | { type: 'LIST'; pageKey: string }
   | { type: 'PUT'; annotation: Annotation }
   | { type: 'DELETE'; id: string; pageKey: string }
+  | { type: 'DELETE_PAGE'; pageKey: string }
   | { type: 'CAPTURE' }
   | { type: 'ENABLED'; enabled: boolean };
 export type Response<T> = { ok: true; value: T } | { ok: false; error: string };

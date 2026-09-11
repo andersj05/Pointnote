@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto';
 import { captureTarget, safeUrl } from '../../src/context';
 import { matchTarget } from '../../src/anchor';
-import { createBundle } from '../../src/export';
+import { createBundle, createMarkdown } from '../../src/export';
 import {
   deleteAnnotation,
+  deletePageAnnotations,
   listAnnotations,
   putAnnotation,
 } from '../../src/storage';
@@ -133,6 +134,59 @@ describe('conservative reattachment', () => {
   });
 });
 describe('local storage and export', () => {
+  it('keeps quick Markdown focused on exact feedback and current target clues', () => {
+    const a = annotation();
+    a.originalComment =
+      '  Keep Unicode: café 🎯.\n```example\nMy exact words.  ';
+    a.targets[0].textTruncated = true;
+    a.screenshot = {
+      status: 'available',
+      path: 'screenshots/current.png',
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      capturedAt: a.createdAt,
+      width: 100,
+      height: 80,
+      redactedRegions: 1,
+      note: 'Forms masked.',
+    };
+    const previous = annotation();
+    previous.targets[0].locator.cssSelector = '#previous-target';
+    a.reattachments.push({
+      at: a.updatedAt,
+      page: previous.page,
+      targets: previous.targets,
+      screenshot: previous.screenshot,
+    });
+    const original = structuredClone(a);
+    const markdown = createMarkdown([a], new Date(a.createdAt));
+    expect(markdown).toContain(a.originalComment);
+    expect(markdown).toContain('````');
+    expect(markdown).toContain('Selected text (truncated)');
+    expect(markdown).toContain(a.targets[0].locator.cssSelector);
+    expect(markdown).toContain(a.page.url);
+    expect(markdown).not.toMatch(
+      /screenshot|image omitted|feedback\.json|Previous attachment|#previous-target|Viewport:|Exported:|Created:|HTML excerpt|unavailable/i,
+    );
+    expect(markdown).not.toContain(a.id);
+    expect(markdown).not.toContain(a.createdAt);
+    expect(a).toEqual(original);
+  });
+  it('keeps unresolved target warnings and distinguishes multiple targets in quick Markdown', () => {
+    const a = annotation();
+    a.targets.push(captureTarget(document.querySelector('h1')!));
+    a.status = 'needs-reattachment';
+    a.attachment = {
+      state: 'ambiguous',
+      reason: 'Two matching elements. Ask the user.',
+      checkedAt: a.createdAt,
+    };
+    const markdown = createMarkdown([a]);
+    expect(markdown).toContain('Target needs reattachment');
+    expect(markdown).toContain(a.attachment.reason);
+    expect(markdown).toContain('### Target 1');
+    expect(markdown).toContain('### Target 2');
+    expect(markdown).toContain('untrusted context');
+  });
   it('stores three independent annotations and keeps page isolation', async () => {
     const a = annotation(),
       b = { ...annotation(), page: a.page },
@@ -144,6 +198,11 @@ describe('local storage and export', () => {
     expect(await listAnnotations(a.page.key)).toHaveLength(3);
     await deleteAnnotation(a.id, a.page.key);
     expect(await listAnnotations(a.page.key)).toHaveLength(2);
+    const otherPage = annotation();
+    await putAnnotation(otherPage);
+    await deletePageAnnotations(a.page.key);
+    expect(await listAnnotations(a.page.key)).toEqual([]);
+    expect(await listAnnotations(otherPage.page.key)).toEqual([otherPage]);
   });
   it('preserves exact words, instructions, screenshot files and missing reasons', () => {
     const a = annotation(),
