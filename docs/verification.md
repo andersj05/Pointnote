@@ -18,8 +18,12 @@ The browser suite verifies:
 10. Settings and minimization restore normal page interaction while preserving the current draft.
 11. Search and status filters affect the displayed notes, while exports retain every note on the page. Repeated keyboard submission saves only one note.
 12. Hands-free recording toggles explicitly, prevents premature saving, and stops when opening settings.
+13. Middle mouse holds work over the page and panel, preserve the selected target and written draft, append repeated recordings, and export the reviewed comment separately from its transcript.
+14. Middle mouse recording preserves text-range selection and prevents link opening during review; middle-click links work normally while selection is paused. Middle-button releases do not stop a hands-free session.
+15. Delayed recognition startup cancels immediately on release. Microphone denial preserves the draft. Escape, lost window focus, settings, minimization, pause, and close stop middle mouse recording.
+16. Empty search results offer Clear filters, restore all notes, and return keyboard focus to the search field.
 
-Unit tests cover privacy sanitization, bounded excerpts, URL redaction, conservative anchors, range reconstruction, page-isolated IndexedDB transactions, bundle contents, local-only voice behavior, fresh browser-service consent, stale transcript rejection, and panel recovery on smaller displays.
+Unit tests cover privacy sanitization, bounded excerpts, URL redaction, conservative anchors, range reconstruction, page-isolated IndexedDB transactions, bundle contents, local-only voice behavior, fresh browser-service consent, stale transcript rejection after clear and finish, immediate cancellation during startup, middle mouse event consumption and cancellation, and panel recovery on smaller displays.
 
 Browser tests write failure images and a report to `test-results/` and `playwright-report/`. Successful report verification also writes an actual feedback ZIP and a screenshot of the sidebar for inspection. CI uploads failed diagnostics and installable build artifacts.
 
@@ -36,5 +40,6 @@ Browser tests write failure images and a report to `test-results/` and `playwrig
 9. Inspect the private-field screenshot: the value should be covered by a solid mask. Try screenshot opt-out too.
 10. Test voice with a physical microphone on your Chrome/Edge installation. Install the on-device language pack if supported; hold to talk, release, edit the transcript, save, and inspect the export. Confirm denied-microphone and unavailable-language cases leave typed input usable. If testing the browser provider, explicitly opt in to its audio handling.
 11. Drag and resize the panel, minimize and restore it, and try a narrow window. Open Settings, change the screenshot option, return to the draft, then reload to check saved preferences. Test hands-free recording and stop it by opening Settings or switching tabs.
+12. With a physical mouse, select a target, hold the scroll wheel down without moving to the panel, speak, move the pointer, and release. Confirm the page shows the recording indicator and the transcript remains editable. Check that neither autoscroll nor a new tab starts. Repeat for a selected passage and multiple targets. Release outside the browser window and switch tabs while holding; confirm recording stops. Pause selection and confirm ordinary middle-click behavior returns.
 
 Physical microphone input, language-pack downloads, browser vendor transcription, and Edge's installation UI are not simulated as successful in the automated suite. This is the remaining hardware/browser compatibility check.
