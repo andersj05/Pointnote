@@ -36,7 +36,7 @@ export function mountPanel(
         x: innerWidth - 376,
         y: 16,
         width: 360,
-        height: Math.min(600, innerHeight - 32),
+        height: Math.min(520, innerHeight - 32),
       },
       viewport(),
     );

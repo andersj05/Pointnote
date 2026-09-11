@@ -53,13 +53,13 @@ async function mount() {
         <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
           <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
-          <div class="selection-prompt">${icon('cursor')}<span class="hint">Select an element on the page</span></div>
-          <div class="target" hidden><div class="target-top"><span class="target-name"></span><button class="quiet" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
           <form class="composer">
+          <div class="selection-prompt">${icon('cursor')}<span class="hint">Select an element on the page</span></div>
+          <div class="target" hidden><div class="target-top"><span class="target-name sr-only"></span><button class="quiet" type="button" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
             <label class="sr-only" for="feedback">Your feedback</label>
-            <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback"></textarea>
-            <div class="voice-slot"></div>
-            <div class="composer-actions"><span class="save-hint">Saves when you select the next target</span><button class="quiet" type="button" data-action="cancel" title="Discard this draft and selection">Clear</button><button class="secondary" type="submit" data-action="save" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>Save note</button></div>
+            <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback" aria-describedby="save-hint"></textarea>
+            <div class="composer-toolbar"><div class="voice-slot"></div>
+            <div class="composer-actions"><span class="save-hint sr-only" id="save-hint">Saves when you select the next target</span><button class="icon draft-clear" type="button" data-action="cancel" aria-label="Clear" title="Discard this draft and selection">${icon('close')}</button><button class="icon save-button" type="submit" data-action="save" aria-label="Save note" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>${icon('check')}</button></div></div>
           </form>
           <div class="notes-heading"><h2>Notes <span class="count">0</span></h2><div class="note-tools"><label class="search-field">${icon('search')}<input type="search" class="note-search" aria-label="Search notes" placeholder="Search"></label><select class="note-filter" aria-label="Filter notes"><option value="all">All notes</option><option value="open">Open</option><option value="addressed">Addressed</option><option value="needs-reattachment">Needs reattachment</option></select></div></div>
           <div class="notes"></div>
@@ -109,7 +109,12 @@ async function mount() {
     matchAgain = false;
   let selectionMode: 'element' | 'text' | 'multiple' = 'element';
   let quote: Target['range'];
-  const setNotice = (message: string) => {
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  const setNotice = (message: string, transient = false) => {
+    clearTimeout(noticeTimer);
+    $('.notice').dataset.transient = String(transient);
+    if (message && transient)
+      noticeTimer = setTimeout(() => setNotice(''), 3000);
     $('.notice').textContent = message;
     $('.notice').hidden = !message;
   };
@@ -224,11 +229,17 @@ async function mount() {
       locked ||
       !selected[0]?.parentElement ||
       selected[0].parentElement === document.body;
-    $<HTMLButtonElement>('[data-action=save]').textContent = busy
-      ? 'Saving…'
-      : reattaching
-        ? 'Attach here'
-        : 'Save note';
+    $('[data-action=save]').innerHTML = reattaching
+      ? 'Attach here'
+      : icon('check');
+    $('[data-action=save]').setAttribute(
+      'aria-label',
+      reattaching ? 'Attach here' : 'Save note',
+    );
+    $('[data-action=save]').classList.toggle(
+      'attach-button',
+      Boolean(reattaching),
+    );
     $('[data-action=save]').title = voice.recording
       ? 'Finish recording before saving'
       : !selected.length
@@ -264,6 +275,7 @@ async function mount() {
       $('.target-name').textContent = selected
         .map((el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''))
         .join(', ');
+      $('.target').title = $('.target-name').textContent || '';
       $('.excerpt').textContent =
         quote?.exact ||
         safeText(selected[0]).slice(0, 260) ||
@@ -332,7 +344,7 @@ async function mount() {
     if (!annotations.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = `${icon('note')}<span>Your notes will appear here</span>`;
+      empty.innerHTML = '<span>Your notes will appear here</span>';
       list.append(empty);
     }
     annotations.forEach((a, i) => {
@@ -387,10 +399,14 @@ async function mount() {
       status.textContent =
         a.status === 'needs-reattachment' ? 'Reattach' : a.status;
       status.hidden = a.status === 'open';
-      head.append(number, title, status);
       const comment = document.createElement('p');
       comment.className = 'comment';
       comment.textContent = a.originalComment;
+      head.append(number, comment, status);
+      const targetDescription = document.createElement('div');
+      targetDescription.className = 'note-context';
+      targetDescription.textContent = title.textContent;
+      title.innerHTML = icon('cursor') + 'Locate';
       const imageState = document.createElement('div');
       imageState.className = 'image-state';
       imageState.textContent =
@@ -407,15 +423,18 @@ async function mount() {
       details.className = 'note-details';
       details.open = a.status === 'needs-reattachment';
       const summary = document.createElement('summary');
-      summary.textContent = 'Details';
+      summary.innerHTML = 'Details <span aria-hidden="true">⌄</span>';
       summary.setAttribute('aria-label', 'Details for note ' + (i + 1));
       const detailActions = document.createElement('div');
       detailActions.className = 'detail-actions';
-      details.append(summary, imageState, detailActions);
+      details.append(summary, targetDescription, imageState, detailActions);
+      actions.append(title);
       const button = (text: string, fn: () => void, parent = actions) => {
         const b = document.createElement('button');
-        b.className = 'quiet';
+        b.className = 'note-action';
         b.textContent = text;
+        if (text === 'Mark addressed' || text === 'Reopen')
+          b.innerHTML = icon('check') + text;
         b.disabled = busy || voice.recording;
         b.onclick = fn;
         parent.append(b);
@@ -468,7 +487,7 @@ async function mount() {
         detailActions,
       );
       actions.append(details);
-      card.append(head, comment, actions);
+      card.append(head, actions);
       list.append(card);
     });
     if (annotations.length && !list.childElementCount) {
@@ -629,7 +648,10 @@ async function mount() {
             inline: 'nearest',
             behavior: 'instant',
           });
-          setNotice('Note ' + (annotations.indexOf(a) + 1) + ' highlighted.');
+          setNotice(
+            'Note ' + (annotations.indexOf(a) + 1) + ' highlighted.',
+            true,
+          );
         }
         renderSelection();
         renderNotes();
@@ -752,7 +774,7 @@ async function mount() {
                   quote = selection.quote;
                   selectedId = reattaching;
                   renderSelection();
-                  setNotice('Text selected. Add your feedback.');
+                  setNotice('Text selected. Add your feedback.', true);
                   if (preferences.voiceShortcut?.kind === 'key') {
                     panel.tabIndex = -1;
                     panel.focus({ preventScroll: true });
@@ -784,7 +806,7 @@ async function mount() {
         else if (minimized) setMinimized(false);
         else if (selected.length || reattaching) {
           clear();
-          setNotice('Selection cleared.');
+          setNotice('Selection cleared.', true);
         } else setOpened(false);
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -827,7 +849,7 @@ async function mount() {
   };
   $('[data-action=reset-layout]').onclick = () => {
     layout.reset();
-    setNotice('Panel layout reset.');
+    setNotice('Panel layout reset.', true);
   };
   $('.note-search').addEventListener('input', renderNotes);
   $('.note-filter').addEventListener('change', renderNotes);
@@ -977,7 +999,10 @@ async function mount() {
       setNotice(
         screenshot.status === 'available'
           ? 'Saved locally, with a screenshot.'
-          : 'Note saved. Screenshot unavailable: ' + screenshot.reason,
+          : !preferences.screenshot
+            ? 'Saved locally.'
+            : 'Note saved. Screenshot unavailable: ' + screenshot.reason,
+        screenshot.status === 'available' || !preferences.screenshot,
       );
       return true;
     } catch (error) {
@@ -1046,7 +1071,7 @@ async function mount() {
         $<HTMLSelectElement>('.note-filter').value = 'all';
         $<HTMLInputElement>('.note-search').value = '';
         closeClearPage();
-        setNotice('All saved notes on this page deleted.');
+        setNotice('All saved notes on this page deleted.', true);
       } finally {
         busy = false;
         renderNotes();
@@ -1133,7 +1158,7 @@ async function mount() {
           const format = button.dataset.export;
           if (format === 'copy') {
             await copyText(createMarkdown(exportSnapshot), root);
-            setNotice('Markdown copied. Paste it into your chat.');
+            setNotice('Markdown copied.', true);
           } else {
             const zip = format === 'zip';
             const blob = zip
@@ -1157,7 +1182,8 @@ async function mount() {
             setNotice(
               zip
                 ? 'ZIP ready: feedback.md, feedback.json, and screenshots.'
-                : 'Markdown file ready. Attach it to your chat.',
+                : 'Markdown file ready.',
+              true,
             );
           }
         } finally {

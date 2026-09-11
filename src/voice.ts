@@ -1,6 +1,6 @@
 import { icon } from './icons';
 import type { Preferences } from './preferences';
-import { voiceWave } from './voice-wave';
+import { voiceWave, mountVoiceWave } from './voice-wave';
 
 import {
   MicrophoneSetupError,
@@ -21,7 +21,7 @@ export function mountVoice(
     setDraft: (value: string) => void;
     canStart: () => boolean;
     onState: () => void;
-    notice: (text: string) => void;
+    notice: (text: string, transient?: boolean) => void;
     settings?: HTMLElement;
     preferences?: Preferences;
     onPreferences?: (value: Partial<Preferences>) => void;
@@ -39,6 +39,7 @@ export function mountVoice(
   activity.hidden = true;
   activity.innerHTML = `${voiceWave()}<span class="voice-activity-state" aria-live="polite"></span>`;
   container.querySelector('[data-voice-talk]')!.append(activity);
+  const waveform = mountVoiceWave(activity);
   const enableMicrophone = document.createElement('button');
   enableMicrophone.type = 'button';
   enableMicrophone.className = 'secondary microphone-setup';
@@ -77,6 +78,7 @@ export function mountVoice(
   const finishWaiters = new Set<(success: boolean) => void>();
   const setSpeaking = (speaking: boolean) => {
     activity.dataset.speaking = String(speaking && phase === 'listening');
+    waveform.setSpeaking(speaking && phase === 'listening');
     if (phase === 'listening')
       activity.querySelector('.voice-activity-state')!.textContent = speaking
         ? 'Hearing you'
@@ -89,9 +91,9 @@ export function mountVoice(
     setSpeaking(false);
     activity.querySelector('.voice-activity-state')!.textContent =
       value === 'starting'
-        ? 'Opening microphone…'
+        ? 'Starting…'
         : value === 'finishing'
-          ? 'Finishing transcript…'
+          ? 'Finishing…'
           : 'Listening';
     options.onState();
   };
@@ -170,8 +172,9 @@ export function mountVoice(
           finish();
           options.notice(
             heardText
-              ? 'Draft ready. Select the next target to save automatically.'
+              ? 'Draft ready.'
               : 'No words were captured. Enable microphone, check your input device, then wait for Listening before speaking.',
+            heardText,
           );
           enableMicrophone.hidden = heardText;
         },
@@ -307,7 +310,7 @@ export function mountVoice(
   const onboarding = document.createElement('section');
   onboarding.className = 'voice-onboarding';
   onboarding.innerHTML =
-    '<div><strong>Prefer to speak?</strong><p>Add feedback with your voice.</p></div><button class="quiet" type="button" data-setup-voice>Set up voice</button><button class="icon" type="button" data-skip-voice aria-label="Not now" title="Not now">' +
+    '<button class="quiet" type="button" data-setup-voice>Set up voice</button><button class="icon" type="button" data-skip-voice aria-label="Not now" title="Not now">' +
     icon('close') +
     '</button>';
   container.prepend(onboarding);
