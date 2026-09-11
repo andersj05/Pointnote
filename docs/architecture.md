@@ -5,15 +5,19 @@
 - `src/background.ts`: toolbar activation, authorized reinjection, message boundary, local persistence calls, and a serialized screenshot queue. No persistent host access.
 - `src/content.ts`: review workspace, settings navigation, hover/selection, markers, note search/filtering, status controls, SPA route detection, and export download. User and page strings enter the UI through `textContent`.
 - `src/panel.ts`: pointer and keyboard movement/resizing, minimization, docking, and viewport clamping.
-- `src/preferences.ts`: validated capture/voice preferences and saved layout in extension-local storage. Browser-service consent is not persisted.
+- `src/preferences.ts`: validated capture/voice preferences and saved layout in extension-local storage. Shortcut configuration, microphone setup completion, and explicit browser-service consent are persisted.
 - `src/icons.ts`: locally bundled SVG interface icons.
 - `src/context.ts`: bounded sanitized excerpts, locator hints, URL redaction, and page hashing.
 - `src/anchor.ts`: conservative element matching.
 - `src/range.ts`: normalized quote anchors across inline markup, with private-region rejection.
 - `src/screenshot.ts`: viewport capture, privacy masks, geometry validation, and target outlines.
 - `src/storage.ts`: IndexedDB v1, one record per annotation, indexed by page key. Writes resolve on transaction completion.
-- `src/voice.ts`: replaceable transcription interface, on-device/browser providers, hold-to-talk and hands-free controls, and separate voice settings. Recording modes keep mouse/keyboard releases from stopping a different recording gesture. Session IDs reject callbacks from cleared, canceled, or finished recordings.
-- `src/voice-shortcut.ts`: middle mouse hold/release handling in window capture, registered before selection blockers. Consumes autoscroll/paste and trailing auxiliary clicks for claimed gestures, while preserving normal middle-click behavior outside active review. Recording always uses the existing explicit selection.
+- `src/voice.ts`: voice onboarding, saved consent, hold-to-talk and hands-free controls, and separate voice settings. Recording modes keep mouse/keyboard releases from stopping a different recording gesture. Session IDs reject callbacks from cleared, canceled, or finished recordings.
+- `src/voice-shortcut.ts`: configurable mouse/key hold/release handling in window capture, registered before selection blockers. Consumes autoscroll/paste and trailing auxiliary clicks for claimed gestures, while preserving normal middle-click behavior outside active review. Recording always uses the existing explicit selection.
+- `src/speech-provider.ts`: on-device/browser recognition implementation and capture lifecycle deadlines.
+- `src/voice-client.ts`, `src/voice-background.ts`, `src/recorder.ts`: create the offscreen recorder, open the extension setup page, and exchange recording events through a per-page runtime port. Only one port owns the microphone; disconnects abort and final events are scoped to that owner.
+- `src/voice-setup.ts`: request extension-origin microphone permission, stop setup tracks, persist completion, and install browser speech packs.
+- `src/shortcut-config.ts`: validate saved bindings and capture a custom shortcut without taking over typing.
 - `src/export.ts`: versioned Markdown/JSON/PNG ZIP, including instructions for the receiving agent.
 
 The content script is a single IIFE. The service worker is an ES module. Neither loads remote executable code. The small runtime ZIP dependency is fflate. esbuild produces `dist/`; the package command omits source maps from the installable ZIP.

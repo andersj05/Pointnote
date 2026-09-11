@@ -6,16 +6,17 @@ Annotations, page context, approved comments, original voice transcripts, and PN
 
 Export is a local browser download. Pointnote does not contact an agent, upload an export, read source files, or edit code. Uninstalling the extension removes local storage; export anything you want to retain.
 
-Panel position and size, screenshot preference, transcription provider, and language are stored in extension-local storage. These preferences contain no page content. Browser-service audio consent is kept only in the current page session and is required again after reload.
+Panel position and size, screenshot preference, transcription provider, language, voice shortcut, and microphone setup completion are stored in extension-local storage. These preferences contain no page content. Explicit browser-service audio consent is remembered until unchecked in Voice settings. Existing installations without saved consent require opt-in. Browser microphone permission is separately controlled by the browser for the Pointnote extension origin.
 
 ## Permissions
 
-| Permission         | Purpose                                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------- |
-| `activeTab`        | Temporary access after the user invokes Pointnote; allows a visible-tab screenshot.                  |
-| `scripting`        | Inject the review UI into that tab and reinject after an authorized same-origin refresh.             |
-| `storage`          | Remember enabled tabs for the browser session and save panel/voice/capture preferences locally.      |
-| `unlimitedStorage` | Retain annotations and screenshots in extension IndexedDB without the small extension storage quota. |
+| Permission         | Purpose                                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `offscreen`        | Run user-initiated speech recognition under the extension origin so microphone permission is shared across reviewed pages. |
+| `activeTab`        | Temporary access after the user invokes Pointnote; allows a visible-tab screenshot.                                        |
+| `scripting`        | Inject the review UI into that tab and reinject after an authorized same-origin refresh.                                   |
+| `storage`          | Remember enabled tabs for the browser session and save panel/voice/capture preferences locally.                            |
+| `unlimitedStorage` | Retain annotations and screenshots in extension IndexedDB without the small extension storage quota.                       |
 
 No persistent host permissions, remote code, clipboard access, browsing-history permission, cookies permission, or private API keys are needed. Screenshot requests verify that the reviewed tab is active before and after capture. A queue respects Chrome's capture rate limit.
 
@@ -52,3 +53,5 @@ Browser-service recognition is optional and requires a user checkbox acknowledgi
 ## Page trust
 
 Content scripts run in an isolated JavaScript world, but their sidebar exists in the shared page DOM. Shadow DOM provides style isolation; it does not make notes secret from a hostile page. Export excerpts are untrusted data. The receiving agent's instructions explicitly distinguish those excerpts from the user's feedback.
+
+Microphone setup uses `getUserMedia` in a bundled extension page and immediately stops all tracks. Recording uses a single extension-owned offscreen document and an extension runtime port to the initiating top-level content script. Only that port receives its transcript; disconnecting aborts recording. Concurrent recording from another tab is refused. No page microphone permission or persistent host access is requested.
