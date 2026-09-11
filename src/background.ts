@@ -3,6 +3,10 @@ import {
   putAnnotation,
   deleteAnnotation,
   deletePageAnnotations,
+  readLibrary,
+  putSession,
+  patchReview,
+  patchAttachment,
 } from './storage';
 import type { Request, Response } from './types';
 import { mountVoiceBackground } from './voice-background';
@@ -65,6 +69,24 @@ chrome.runtime.onMessage.addListener(
       switch (message.type) {
         case 'LIST':
           return listAnnotations(message.pageKey);
+        case 'LIBRARY':
+          return readLibrary();
+        case 'PUT_SESSION':
+          await putSession(message.session);
+          return null;
+        case 'PATCH_REVIEW':
+          return patchReview(message.id, message.patch);
+        case 'PATCH_ATTACHMENT':
+          if (
+            !message.attachment ||
+            !['attached', 'missing', 'ambiguous'].includes(
+              message.attachment.state,
+            ) ||
+            typeof message.attachment.reason !== 'string' ||
+            message.attachment.reason.length > 5000
+          )
+            throw new Error('Attachment update is invalid.');
+          return patchAttachment(message.id, message.attachment);
         case 'PUT': {
           const a = message.annotation;
           if (
@@ -121,7 +143,10 @@ chrome.runtime.onMessage.addListener(
     const task =
       message.type === 'PUT' ||
       message.type === 'DELETE' ||
-      message.type === 'DELETE_PAGE'
+      message.type === 'DELETE_PAGE' ||
+      message.type === 'PUT_SESSION' ||
+      message.type === 'PATCH_REVIEW' ||
+      message.type === 'PATCH_ATTACHMENT'
         ? (writeQueue = writeQueue.then(handle, handle))
         : message.type === 'CAPTURE'
           ? (captureQueue = captureQueue.then(handle, handle))
