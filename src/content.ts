@@ -5,7 +5,6 @@ import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
 import { createBundle } from './export';
 import { mountVoice } from './voice';
-import { voiceWave } from './voice-wave';
 import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
@@ -43,15 +42,13 @@ async function mount() {
   const shell = document.createElement('div');
   shell.innerHTML = `
     <div class="shield" aria-hidden="true"></div><div class="highlights"></div><div class="markers"></div>
-    <div class="recording-toast" aria-hidden="true" hidden>${voiceWave()}<span class="recording-toast-copy"><strong>Opening microphone…</strong><span>Release middle mouse to finish</span></span><kbd>Esc to stop</kbd></div>
     <aside class="panel" aria-label="Pointnote review">
       <header class="top">
         <button class="drag-handle" data-panel-handle="move" aria-label="Move panel" title="Drag to move · arrow keys to nudge"><span class="logo" aria-hidden="true">${icon('note')}</span><span class="brand">pointnote</span><span class="drag-dots">${icon('grip')}</span></button>
         <div class="window-actions"><button class="icon" data-action="settings" aria-label="Open settings" title="Settings" aria-expanded="false">${icon('settings')}</button><button class="icon" data-action="minimize" aria-label="Minimize Pointnote" title="Minimize">${icon('minus')}</button><button class="icon" data-action="close" aria-label="Close Pointnote" title="Close">${icon('close')}</button></div>
       </header>
       <div class="workspace">
-        <div class="page-context"><span class="page-title"></span><button class="icon" data-action="dock" aria-label="Move sidebar to the other side" title="Move to the other side">${icon('dock')}</button></div>
-        <div class="review-row"><span class="mode-label"><span class="dot"></span><span class="mode-text">Selection on</span></span><button class="quiet" data-action="pause">Pause selection</button></div>
+        <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
           <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
           <div class="selection-prompt">${icon('cursor')}<span class="hint">Select an element on the page</span></div>
@@ -72,7 +69,7 @@ async function mount() {
         <div class="settings-body">
           <section class="settings-section"><h2>Capture</h2><label class="setting-toggle"><span>Include screenshots<span class="setting-description">Form fields and private areas are masked.</span></span><input type="checkbox" class="include-screenshot" role="switch"></label></section>
           <section class="settings-section"><h2>Voice</h2><div class="voice-preferences"></div><div class="voice-shortcut-settings"></div></section>
-          <section class="settings-section"><h2>Workspace</h2><div class="setting-row"><span>Panel position &amp; size</span><button class="secondary" data-action="reset-layout">Reset layout</button></div><p class="setting-description">Drag the title bar to move. Drag either bottom corner to resize.</p></section>
+          <section class="settings-section"><h2>Workspace</h2><div class="setting-row"><span>Panel side</span><button class="secondary" data-action="dock" aria-label="Move sidebar to the other side">Switch sides</button></div><div class="setting-row"><span>Panel position &amp; size</span><button class="secondary" data-action="reset-layout">Reset layout</button></div><p class="setting-description">Drag the title bar to move. Drag either bottom corner to resize.</p></section>
           <section class="settings-section shortcuts"><h2>Shortcuts</h2><div><span>Hold to talk, selection on</span><kbd data-active-voice-shortcut>Middle mouse</kbd></div><div><span>Save note</span><kbd>Ctrl / ⌘ + Enter</kbd></div><div><span>Hold to talk, when focused</span><kbd>Space</kbd></div><div><span>Cancel selection / go back</span><kbd>Esc</kbd></div><div><span>Move or resize, when focused</span><kbd>Arrow keys</kbd></div></section>
           <p class="local-note"><span class="dot"></span>Notes stay in this browser. No audio is stored.</p>
         </div>
@@ -194,18 +191,9 @@ async function mount() {
   function updateControls() {
     const holdKey = shortcutLabel(preferences.voiceShortcut);
     $('[data-active-voice-shortcut]').textContent = holdKey;
-    $('.recording-toast-copy > span').textContent =
-      `Release ${holdKey} to finish`;
     $('[data-voice-talk]').title =
       `Hold ${holdKey} outside text fields, hold this button, or hold Space while focused`;
-    $('.recording-toast').hidden = !voice.middleRecording || !selectionActive();
-    $('.recording-toast').dataset.voicePhase = voice.phase;
-    $('.recording-toast strong').textContent =
-      voice.phase === 'listening'
-        ? 'Listening to your note'
-        : voice.phase === 'finishing'
-          ? 'Finishing your transcript…'
-          : 'Opening microphone…';
+    $('.talk-key').textContent = holdKey;
     const voiceHint = $('.voice-hint');
     voiceHint.textContent = !selected.length
       ? `Select a target, then hold ${holdKey} to talk.`
@@ -321,10 +309,12 @@ async function mount() {
     const list = $('.notes');
     list.replaceChildren();
     $('.count').textContent = String(annotations.length);
+    $('.note-filter').hidden = !annotations.length;
+    $('.search-field').hidden = !annotations.length;
     if (!annotations.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = `${icon('note')}<span>No notes yet</span><p>Select a target and add your first note.</p>`;
+      empty.innerHTML = `${icon('note')}<span>Your notes will appear here</span>`;
       list.append(empty);
     }
     annotations.forEach((a, i) => {
@@ -367,11 +357,10 @@ async function mount() {
       const title = document.createElement('button');
       title.className = 'card-title';
       title.textContent =
-        a.targets[0].locator.tag +
-        ' · ' +
-        (a.targets[0].locator.nearbyHeading ||
-          a.targets[0].locator.accessibleName ||
-          'Page element');
+        a.targets[0].locator.nearbyHeading ||
+        a.targets[0].locator.accessibleName ||
+        'Page element';
+      title.title = a.targets[0].locator.tag + ' · ' + title.textContent;
       title.onclick = () => revisit(a);
       title.setAttribute('aria-label', 'Open note ' + (i + 1));
       const status = document.createElement('span');
@@ -379,6 +368,7 @@ async function mount() {
         'status' + (a.status === 'needs-reattachment' ? ' missing' : '');
       status.textContent =
         a.status === 'needs-reattachment' ? 'Reattach' : a.status;
+      status.hidden = a.status === 'open';
       head.append(number, title, status);
       const comment = document.createElement('p');
       comment.className = 'comment';
@@ -395,13 +385,22 @@ async function mount() {
           : a.screenshot.reason;
       const actions = document.createElement('div');
       actions.className = 'card-actions';
-      const button = (text: string, fn: () => void) => {
+      const details = document.createElement('details');
+      details.className = 'note-details';
+      details.open = a.status === 'needs-reattachment';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Details';
+      summary.setAttribute('aria-label', 'Details for note ' + (i + 1));
+      const detailActions = document.createElement('div');
+      detailActions.className = 'detail-actions';
+      details.append(summary, imageState, detailActions);
+      const button = (text: string, fn: () => void, parent = actions) => {
         const b = document.createElement('button');
         b.className = 'quiet';
         b.textContent = text;
         b.disabled = busy || voice.recording;
         b.onclick = fn;
-        actions.append(b);
+        parent.append(b);
       };
       button(a.resolution === 'addressed' ? 'Reopen' : 'Mark addressed', () =>
         act(async () => {
@@ -415,31 +414,40 @@ async function mount() {
           renderNotes();
         }),
       );
-      button('Reattach', () => {
-        reattaching = a.id;
-        selectedId = a.id;
-        selected = [];
-        feedback.value = a.originalComment;
-        setReviewing(true);
-        setNotice(
-          'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
-        );
-        renderSelection();
-        renderNotes();
-      });
-      button('Delete', () => {
-        const remove = actions.lastElementChild as HTMLButtonElement;
-        remove.textContent = 'Confirm delete';
-        remove.onclick = () =>
-          act(async () => {
-            await rpc({ type: 'DELETE', id: a.id, pageKey: page.key });
-            annotations = annotations.filter((n) => n.id !== a.id);
-            if (selectedId === a.id) clear();
-            renderNotes();
-            draw();
-          });
-      });
-      card.append(head, comment, imageState, actions);
+      button(
+        'Reattach',
+        () => {
+          reattaching = a.id;
+          selectedId = a.id;
+          selected = [];
+          feedback.value = a.originalComment;
+          setReviewing(true);
+          setNotice(
+            'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
+          );
+          renderSelection();
+          renderNotes();
+        },
+        detailActions,
+      );
+      button(
+        'Delete',
+        () => {
+          const remove = detailActions.lastElementChild as HTMLButtonElement;
+          remove.textContent = 'Confirm delete';
+          remove.onclick = () =>
+            act(async () => {
+              await rpc({ type: 'DELETE', id: a.id, pageKey: page.key });
+              annotations = annotations.filter((n) => n.id !== a.id);
+              if (selectedId === a.id) clear();
+              renderNotes();
+              draw();
+            });
+        },
+        detailActions,
+      );
+      actions.append(details);
+      card.append(head, comment, actions);
       list.append(card);
     });
     if (annotations.length && !list.childElementCount) {
@@ -521,8 +529,10 @@ async function mount() {
   function setReviewing(value: boolean) {
     reviewing = value;
     shield.hidden = !selectionActive() || selectionMode === 'text';
-    $('.mode-text').textContent = value ? 'Selection on' : 'Selection paused';
-    $('.review-row').classList.toggle('paused', !value);
+    $('.page-context').classList.toggle('paused', !value);
+    $('[data-action=pause]').title = value
+      ? 'Pause selection to interact with the page'
+      : 'Resume selecting elements for your notes';
     $('[data-action=pause]').textContent = value
       ? 'Pause selection'
       : 'Resume selection';

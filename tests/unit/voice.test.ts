@@ -26,6 +26,8 @@ class FakeRecognition implements Recognizer {
   onend: Recognizer['onend'] = null;
   start = vi.fn(() => this.onaudiostart?.());
   onaudiostart: Recognizer['onaudiostart'] = null;
+  onspeechstart: Recognizer['onspeechstart'] = null;
+  onspeechend: Recognizer['onspeechend'] = null;
   stop = vi.fn(() => this.onend?.());
   abort = vi.fn(() => this.onend?.());
   constructor() {
@@ -70,6 +72,38 @@ describe('replaceable speech provider', () => {
     expect(draft).toBe('Written context\nFinal words after release');
     FakeRecognition.latest.onend?.();
     expect(voice.recording).toBe(false);
+    voice.reset();
+  });
+  it('reacts to speech rather than an open microphone and ignores late speech after release', async () => {
+    class DelayedStop extends FakeRecognition {
+      stop = vi.fn();
+    }
+    Object.assign(globalThis, { SpeechRecognition: DelayedStop });
+    const container = document.createElement('div');
+    const voice = mountVoice(container, {
+      getDraft: () => '',
+      setDraft: () => {},
+      canStart: () => true,
+      onState: () => {},
+      notice: () => {},
+    });
+    voice.start('middle');
+    await vi.waitFor(() => expect(voice.phase).toBe('listening'));
+    const activity = container.querySelector<HTMLElement>('.voice-activity')!;
+    expect(activity.dataset.speaking).toBe('false');
+    FakeRecognition.latest.onspeechstart?.();
+    expect(activity.dataset.speaking).toBe('true');
+    expect(activity.textContent).toContain('Hearing you');
+    FakeRecognition.latest.onspeechend?.();
+    expect(activity.dataset.speaking).toBe('false');
+    FakeRecognition.latest.onspeechstart?.();
+    expect(activity.dataset.speaking).toBe('true');
+    voice.release('middle');
+    expect(activity.dataset.speaking).toBe('false');
+    FakeRecognition.latest.onspeechstart?.();
+    expect(activity.dataset.speaking).toBe('false');
+    FakeRecognition.latest.onend?.();
+    expect(activity.hidden).toBe(true);
     voice.reset();
   });
   it('aborts stalled startup with an actionable error', async () => {
