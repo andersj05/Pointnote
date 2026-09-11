@@ -11,6 +11,12 @@ const shared = {
   logLevel: 'info',
 };
 const configs = [
+  ...['recorder', 'voice-setup'].map((name) => ({
+    ...shared,
+    entryPoints: [`src/${name}.ts`],
+    outfile: `dist/${name}.js`,
+    format: 'iife',
+  })),
   {
     ...shared,
     entryPoints: ['src/content.ts'],
@@ -30,3 +36,6 @@ if (process.argv.includes('--watch')) {
 } else {
   await Promise.all(configs.map((options) => build(options)));
 }
+console.info(
+  '\nFor an installed unpacked extension: click Reload on Pointnote in your browser’s Extensions page, then refresh reviewed pages. Rebuilding alone does not update the running extension.',
+);
