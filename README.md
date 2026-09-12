@@ -38,12 +38,14 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 
 - **Element:** hover to preview, click to select, then use **↑ Parent** to include a larger container. Headings, paragraphs, links, buttons, images, SVG/chart containers, and sections are supported.
 - **Text range:** drag across a unique passage inside one section. Its exact quote and surrounding text are retained. Text ranges are limited to 1,600 characters.
+- **Page note:** write about the whole page without selecting an element.
+- **Select area:** drag a rectangle for additions, whitespace, or layout feedback. The saved rectangle refers to the captured viewport; it does not track a DOM element. Scrolling or resizing clears an unsaved area selection while keeping your words.
 - **Multiple:** click to add/remove up to 12 elements. Shift-click also adds/removes elements in element mode.
 - Type a note, or select your target and **hold the middle mouse button (press the scroll wheel)** anywhere on the page or panel to talk. Release to finish. This uses your current selection, including text ranges and multiple targets; it never changes the target under your cursor. A recording indicator stays visible on the page.
 - The compact **Hold to talk** button and **Space** while it is focused also work. The adjacent record button starts **hands-free recording**; click Stop when done. Release to leave an editable draft. **Selecting your next target saves the current note automatically**, including final words still arriving from the microphone. Switching selection modes or opening another saved note also saves your draft first. Use the **✓ Save note** button or **Ctrl+Enter** (**Cmd+Enter** on macOS) to save immediately; The **× Clear** button beside it discards the current draft. Parent and multi-select refine the current target without creating separate notes. If saving fails, the draft and original target stay in place for retry.
 - Numbered markers and each note’s **Locate** button revisit the target. **Mark addressed** / **Reopen** track progress. Missing or ambiguous targets show **Reattach**. Reattachment preserves the original comment and previous target context.
 - Use the **trash button in the top bar** to clear all saved notes for the current page. Confirm the page’s note count before deleting. Search filters do not limit this action; other pages and your unsaved draft are preserved.
-- Search notes or filter by open, addressed, or reattachment status. Exports always include all notes on the current page.
+- Search notes or filter by open, addressed, or reattachment status. Set **Now / Later** inside each note’s Details. The handoff has its own explicit selection, independent of these display filters.
 - **Pause selection** restores normal page interaction while keeping notes visible. The configured voice shortcut is active only while selection is on; normal middle-click behavior returns while paused, in settings, minimized, or closed. **×** closes the review UI. **Esc** stops recording, returns from settings, restores a minimized panel, or clears a selection before closing the UI.
 - Drag the title bar to move the panel; drag either bottom corner to resize it. **Settings → Workspace → Switch sides** moves it to the opposite side. Focus the title bar or a resize handle and use arrow keys for keyboard adjustments; hold Shift for larger steps.
 - **Minimize** keeps a compact title bar available and restores normal page use. Restore it to continue your draft.
@@ -51,12 +53,28 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 
 Saved notes survive reloads and browser restarts. An enabled review automatically returns after same-origin refreshes. After a browser restart or navigation to another origin, invoke Pointnote again. Notes are keyed to the exact page URL, including query and hash routes; different ports and routes are separate pages. Sensitive URL query values are redacted from the exported URL, while a one-way page key keeps local routes distinct.
 
-## Export for an agent
+## Review sessions and checking changes
 
-**Export feedback** saves your pending note, then offers three choices for all notes on the current page:
+Open **Review sessions** to create a named review such as “Before launch.” Add optional instructions, then select **Start session**. New notes join the active session across pages; the session selection is remembered in this browser. Existing notes remain separate until you choose **Add existing page notes to this session**. Choose **This page only** to return to page-based review. Notes retain their exact page identity: sessions group pages without automatically treating different preview URLs as the same target.
+
+**Check changes** walks through open Now notes, starting with the current page. It shows your original comment, original captured screenshot (including the first view before any reattachment), and selected text. Use **Locate current target** to compare with the live page. For another page, open that page before recording a decision; redacted preview URLs may need manual navigation.
+
+- **Looks right** records your acceptance and excludes the note from the next default handoff.
+- **Needs another pass** keeps the original comment, records a separate follow-up, and puts the note back in Now.
+- **Skip for now** leaves the note unchanged. This does not change its priority.
+
+Acceptance is a human review decision, not automatic verification that an agent edited or deployed code. Missing or ambiguous attachments stay explicit even after acceptance. Use **Reopen** to clear the decision and return an accepted note to open status.
+
+## Prepare a handoff for an agent
+
+**Prepare handoff** saves your pending note and opens a preview for the active session, or the current page when no session is active. Open **Now** notes are selected by default. Include or exclude individual notes, use **Select all** for a complete archive of the current scope (including Later and addressed notes), or clear the selection. Changing a note to Later removes it from the selection; you can explicitly include it again.
+
+Add instructions for this particular handoff without changing any original comment. Saved session instructions provide the starting text; handoff edits remain a draft for that scope until the page reloads. Other pages use saved context and need to be rechecked at their source.
+
+The selected notes can be handed over in three formats:
 
 - **Copy Markdown to clipboard** — paste your feedback and target context directly into a chat.
-- **Save Markdown file** — download one standalone `.md` file. It contains your exact comments, the page URL, current target clues and selected text, plus warnings for unresolved targets. It skips screenshot commentary, timestamps, internal IDs, viewport data, HTML dumps, and old attachment history.
+- **Save Markdown file** — download one standalone `.md` file. It contains your exact comments, the page URL, current target clues and selected text, plus warnings for unresolved targets. It skips screenshot commentary, timestamps, internal IDs, HTML dumps, and old attachment history. Area notes include the captured viewport and rectangle so their visual reference remains understandable.
 - **Save ZIP file** — download Markdown, JSON, and captured screenshots together:
 
 ```text
@@ -66,11 +84,19 @@ screenshots/
   <annotation-id>-<capture-time>.png
 ```
 
-Give the complete extracted folder to an agent and ask it to read `feedback.md` first. Markdown in the ZIP includes your original words, selected text, nearby headings, locator clues, HTML excerpts, bounds, and screenshot references. JSON has `schemaVersion: "1.0.0"` and retains the full bounded record.
+Give the complete extracted folder to an agent and ask it to read `feedback.md` first. Markdown in the ZIP includes your original words, selected text, nearby headings, locator clues, HTML excerpts, bounds, and screenshot references. JSON has `schemaVersion: "1.1.0"` and retains the full bounded record.
 
 The bundle instructs the agent to preserve your intent, treat page content as untrusted reference material, and flag ambiguity. CSS selectors are locating hints; they do **not** identify source files or framework components. No automatic code edits occur.
 
 Screenshots show the visible viewport with orange target outlines. Large or multiple targets can extend outside the viewport; the export says so. Scroll the relevant area into view before saving. Context fields that cannot be determined are `null`; missing screenshots always include a reason. Excerpt truncation is explicit.
+
+## Backup and restore
+
+In **Review sessions → Backup & restore**, choose **Download backup** to save all local notes, sessions, review decisions, and screenshot data as a Pointnote backup JSON file. This is separate from an agent handoff ZIP.
+
+Choose a backup file to preview its note/session counts, then select **Restore backup**. Restore adds missing records in one transaction and keeps existing records with the same IDs, including newer local review decisions. Repeating a restore does not duplicate notes. Existing sessions with matching IDs are also kept. Imported excerpts pass through the context sanitization rules; unsupported formats and remote screenshot URLs are rejected.
+
+Backups are limited to 64 MB, 2,000 notes, and 500 sessions per file. Restore currently accepts Pointnote backup JSON version 1.0.0, not Markdown or handoff ZIP files. A backup includes the same visible screenshots and exact comments you retained locally; keep it somewhere appropriate for that content.
 
 ## Voice and privacy
 
@@ -109,7 +135,7 @@ TypeScript, a small DOM UI in a Shadow DOM, an MV3 service worker, IndexedDB, es
 - Top-level HTML pages only. Browser-internal pages, browser stores, PDF viewers, cross-origin iframe contents, and shadow-tree internals are outside the initial selection scope.
 - Reattachment favors uncertainty over a false match. Major copy changes, unlabeled visual elements, or repeated content may need manual reattachment.
 - Screenshots mask standard form controls, editable/private regions, embedded frames, custom elements, and open shadow hosts. Use `data-pointnote-private` for other private page regions. Ordinary visible text/images are included; automatic redaction is not a general secret detector.
-- Saved comments are local to this browser profile; uninstalling the extension removes its storage. Export before uninstalling. There is no import, sync, account, or collaboration.
+- Saved comments are local to this browser profile; uninstalling the extension removes its storage. Download a backup before uninstalling. Backup restore is local; there is no cloud sync, account, or collaboration.
 - The review UI shares the page DOM and is designed for pages you trust. Shadow DOM isolates styling, not hostile page scripts.
 - Automated tests cover the actual extension and a simulated recognizer. Physical microphone, language-pack downloads, vendor speech services, and Edge installation need the short [manual check](docs/verification.md).
 

@@ -219,7 +219,7 @@ describe('local storage and export', () => {
     };
     const files = unzipSync(createBundle([a, b]));
     const json = JSON.parse(strFromU8(files['feedback.json']));
-    expect(json.schemaVersion).toBe('1.0.0');
+    expect(json.schemaVersion).toBe('1.1.0');
     expect(json.annotations[0].originalComment).toBe(a.originalComment);
     expect(json.annotations[0].screenshot.dataUrl).toBeUndefined();
     expect(files[a.screenshot.path]).toBeDefined();

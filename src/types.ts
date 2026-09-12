@@ -1,4 +1,30 @@
 export type Status = 'open' | 'addressed' | 'needs-reattachment';
+export interface ReviewSession {
+  id: string;
+  name: string;
+  instructions: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ReviewDecision {
+  outcome: 'accepted' | 'needs-another-pass';
+  checkedAt: string;
+  followUp: string;
+}
+export interface ReviewPatch {
+  priority?: 'now' | 'later';
+  sessionId?: string | null;
+  resolution?: 'open' | 'addressed';
+  review?: ReviewDecision;
+}
+export interface ReviewLibrary {
+  annotations: Annotation[];
+  sessions: ReviewSession[];
+}
+export interface HandoffContext {
+  name: string;
+  instructions: string;
+}
 export interface Bounds {
   x: number;
   y: number;
@@ -59,11 +85,15 @@ export interface Annotation {
   createdAt: string;
   updatedAt: string;
   page: PageContext;
-  selectionKind: 'element' | 'multiple' | 'text-range';
+  selectionKind: 'element' | 'multiple' | 'text-range' | 'page' | 'region';
+  region?: Bounds;
   targets: Target[];
   screenshot: Screenshot;
   status: Status;
   resolution: 'open' | 'addressed';
+  priority?: 'now' | 'later';
+  sessionId?: string;
+  review?: ReviewDecision;
   attachment: {
     state: 'attached' | 'missing' | 'ambiguous';
     reason: string;
@@ -79,6 +109,15 @@ export interface Annotation {
 }
 export type Request =
   | { type: 'LIST'; pageKey: string }
+  | { type: 'LIBRARY' }
+  | { type: 'PUT_SESSION'; session: ReviewSession }
+  | { type: 'PATCH_REVIEW'; id: string; patch: ReviewPatch }
+  | {
+      type: 'PATCH_ATTACHMENT';
+      id: string;
+      attachment: Annotation['attachment'];
+    }
+  | { type: 'RESTORE'; library: ReviewLibrary }
   | { type: 'PUT'; annotation: Annotation }
   | { type: 'DELETE'; id: string; pageKey: string }
   | { type: 'DELETE_PAGE'; pageKey: string }
