@@ -48,7 +48,8 @@ export async function captureScreenshot(
   };
   const targetRects = elements.map(bounds);
   if (
-    !targetRects.some(
+    !(outlines?.length === 0 && !elements.length) &&
+    !(outlines || targetRects).some(
       (r) =>
         r.x < innerWidth &&
         r.y < innerHeight &&
@@ -138,7 +139,13 @@ export async function captureScreenshot(
       width: canvas.width,
       height: canvas.height,
       redactedRegions: regions.length,
-      note: 'Visible viewport; orange outlines label targets in selection order. Form controls, editable/private regions, embedded frames, custom elements and open shadow hosts are masked. Offscreen portions are not captured.',
+      note:
+        (elements.length
+          ? 'Visible viewport; orange outlines label targets in selection order.'
+          : outlines?.length
+            ? 'Visible viewport; orange outline marks the selected area at capture time. This is a visual reference, not a tracked element.'
+            : 'Page-level feedback; this image shows the visible viewport at capture time.') +
+        ' Form controls, editable/private regions, embedded frames, custom elements and open shadow hosts are masked. Offscreen portions are not captured.',
     };
   } catch (error) {
     return {

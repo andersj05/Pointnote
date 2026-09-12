@@ -3,8 +3,7 @@ import { bounds, captureTarget, pageContext, safeText } from './context';
 import { matchTarget } from './anchor';
 import { rpc } from './rpc';
 import { captureScreenshot } from './screenshot';
-import { createBundle, createMarkdown } from './export';
-import { copyText } from './clipboard';
+import { mountReviewWorkspace } from './review-workspace';
 import { mountVoice } from './voice';
 import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
@@ -50,11 +49,13 @@ async function mount() {
       </header>
       <div class="clear-page-confirmation" role="group" aria-label="Clear page notes" hidden><p class="clear-page-prompt"></p><div><button class="secondary" data-action="keep-notes">Cancel</button><button class="secondary danger" data-action="confirm-clear-page">Delete notes</button></div></div>
       <div class="workspace">
+        <div class="session-bar"><span class="session-label">This page</span><button class="quiet" data-action="sessions">Review sessions</button></div>
         <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
           <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
+          <div class="scope-tools"><button class="quiet" data-mode="page" aria-pressed="false">Page note</button><button class="quiet" data-mode="region" aria-pressed="false">Select area</button></div>
           <form class="composer">
-          <div class="selection-prompt">${icon('cursor')}<span class="hint">Select an element on the page</span></div>
+          <div class="selection-prompt">${icon('cursor')}<span class="hint">Click something you want to change</span></div>
           <div class="target" hidden><div class="target-top"><span class="target-name sr-only"></span><button class="quiet" type="button" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
             <label class="sr-only" for="feedback">Your feedback</label>
             <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback" aria-describedby="save-hint"></textarea>
@@ -76,7 +77,7 @@ async function mount() {
         </div>
       </section>
       <div class="notice" role="status" aria-live="polite" hidden></div>
-      <footer class="footer"><div class="export-menu" id="export-menu" role="menu" aria-label="Export format" hidden><button type="button" role="menuitem" data-export="copy">Copy Markdown to clipboard<span>Paste feedback and target context into a chat</span></button><button type="button" role="menuitem" data-export="markdown">Save Markdown file<span>A single .md file for quick feedback</span></button><button type="button" role="menuitem" data-export="zip">Save ZIP file<span>Markdown, JSON, and screenshots</span></button></div><button class="export" data-action="export" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu" disabled>${icon('download')}<span>Export feedback</span><span class="export-format" aria-hidden="true">⌃</span></button></footer>
+      <footer class="footer"><button class="export" data-action="export" disabled>${icon('download')}<span>Prepare handoff</span></button><button class="quiet check-changes" data-action="check-changes" disabled>Check changes</button></footer>
       <button class="resize-handle resize-left" data-panel-handle="resize-left" aria-label="Resize panel from left" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button><button class="resize-handle" data-panel-handle="resize" aria-label="Resize panel" title="Drag to resize · arrow keys to adjust">${icon('resize')}</button>
     </aside>`;
   root.append(shell);
@@ -92,7 +93,8 @@ async function mount() {
     reviewing = true,
     busy = false;
   let transitioning = false;
-  let exportSnapshot: Annotation[] = [];
+  let reviews: ReturnType<typeof mountReviewWorkspace> | undefined = undefined;
+  let reviewOpen = false;
   let clearPageKey: string | undefined;
   let settingsOpen = false,
     minimized = false;
@@ -107,7 +109,10 @@ async function mount() {
     refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let matching = false,
     matchAgain = false;
-  let selectionMode: 'element' | 'text' | 'multiple' = 'element';
+  let selectionMode: 'element' | 'text' | 'multiple' | 'page' | 'region' =
+    'element';
+  let regionDraft: Bounds | undefined;
+  let regionPreview: Bounds | undefined;
   let quote: Target['range'];
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const setNotice = (message: string, transient = false) => {
@@ -154,7 +159,7 @@ async function mount() {
       updateControls();
     },
     canStart: () => {
-      if (!selected.length)
+      if (!hasSelection())
         setNotice('Select a target before recording feedback.');
       return (
         opened &&
@@ -162,8 +167,9 @@ async function mount() {
         !transitioning &&
         !reattaching &&
         !settingsOpen &&
+        !reviewOpen &&
         !minimized &&
-        selected.length > 0
+        hasSelection()
       );
     },
     onState: updateControls,
@@ -185,6 +191,15 @@ async function mount() {
     },
   );
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.activeReviewSessionId) {
+      void reviews
+        ?.refreshSummary()
+        .catch(() =>
+          setNotice(
+            'Could not refresh the active session. Reopen Review sessions to retry.',
+          ),
+        );
+    }
     if (area !== 'local' || !changes.preferences) return;
     void readPreferences().then(({ preferences: value }) => {
       Object.assign(preferences, value);
@@ -198,8 +213,13 @@ async function mount() {
       setNotice(error instanceof Error ? error.message : String(error)),
     );
   };
+  function hasSelection() {
+    return (
+      selected.length > 0 || selectionMode === 'page' || Boolean(regionDraft)
+    );
+  }
   function updateControls() {
-    const locked = busy || transitioning;
+    const locked = busy || transitioning || Boolean(reviews?.isBusy);
     $<HTMLButtonElement>('[data-action=clear-page]').disabled =
       locked || voice.recording || !annotations.length;
     $<HTMLButtonElement>('[data-action=confirm-clear-page]').disabled = locked;
@@ -210,21 +230,25 @@ async function mount() {
       `Hold ${holdKey} outside text fields, hold this button, or hold Space while focused`;
     $('.talk-key').textContent = holdKey;
     const voiceHint = $('.voice-hint');
-    voiceHint.textContent = !selected.length
+    voiceHint.textContent = !hasSelection()
       ? `Select a target, then hold ${holdKey} to talk.`
       : !reviewing
         ? 'Resume selection to use your voice shortcut.'
         : `Hold ${holdKey} to talk about this selection.`;
-    voiceHint.classList.toggle('ready', Boolean(selected.length && reviewing));
+    voiceHint.classList.toggle('ready', Boolean(hasSelection() && reviewing));
     $<HTMLButtonElement>('[data-action=save]').disabled =
       locked ||
       voice.recording ||
-      !selected.length ||
+      !hasSelection() ||
       (!reattaching && !feedback.value.trim());
     $<HTMLButtonElement>('[data-action=export]').disabled =
       locked ||
       (!annotations.length &&
-        !(selected.length && (feedback.value.trim() || voice.recording)));
+        !reviews?.hasNotes &&
+        !(hasSelection() && (feedback.value.trim() || voice.recording)));
+    $<HTMLButtonElement>('[data-action=sessions]').disabled = locked;
+    $<HTMLButtonElement>('[data-action=check-changes]').disabled =
+      locked || (!annotations.length && !reviews?.hasNotes);
     $<HTMLButtonElement>('[data-action=parent]').disabled =
       locked ||
       !selected[0]?.parentElement ||
@@ -242,7 +266,7 @@ async function mount() {
     );
     $('[data-action=save]').title = voice.recording
       ? 'Finish recording before saving'
-      : !selected.length
+      : !hasSelection()
         ? 'Select a target on the page first'
         : !reattaching && !feedback.value.trim()
           ? 'Write or record a note first'
@@ -256,7 +280,7 @@ async function mount() {
     for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
       $<HTMLButtonElement>(`[data-action=${action}]`).disabled = locked;
     $<HTMLButtonElement>('[data-action=cancel]').disabled =
-      locked || (!selected.length && !feedback.value && !reattaching);
+      locked || (!hasSelection() && !feedback.value && !reattaching);
     $<HTMLButtonElement>('[data-action=parent]').disabled ||= voice.recording;
     for (const button of root.querySelectorAll<HTMLButtonElement>(
       '[data-mode]',
@@ -269,8 +293,16 @@ async function mount() {
         locked || (voice.recording && !button.matches('.card-title'));
   }
   function renderSelection() {
-    $('.target').hidden = !selected.length;
-    $('.selection-prompt').hidden = Boolean(selected.length);
+    $('.target').hidden = !hasSelection();
+    $('.selection-prompt').hidden = hasSelection();
+    $('[data-action=parent]').hidden = !selected.length;
+    if (selectionMode === 'page') {
+      $('.target-name').textContent = 'Whole page';
+      $('.excerpt').textContent = 'Feedback about this page as a whole';
+    } else if (regionDraft) {
+      $('.target-name').textContent = 'Selected area';
+      $('.excerpt').textContent = 'Area in this view · visual reference';
+    }
     if (selected.length) {
       $('.target-name').textContent = selected
         .map((el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''))
@@ -301,6 +333,18 @@ async function mount() {
       });
       highlights.append(box);
     };
+    const area = regionPreview || regionDraft;
+    if (area) {
+      const box = document.createElement('div');
+      box.className = 'outline';
+      Object.assign(box.style, {
+        left: area.x + 'px',
+        top: area.y + 'px',
+        width: area.width + 'px',
+        height: area.height + 'px',
+      });
+      highlights.append(box);
+    }
     selected.forEach((el) => {
       const range = quote && rangeForQuote(el, quote.exact);
       if (range)
@@ -387,17 +431,28 @@ async function mount() {
       const title = document.createElement('button');
       title.className = 'card-title';
       title.textContent =
-        a.targets[0].locator.nearbyHeading ||
-        a.targets[0].locator.accessibleName ||
-        'Page element';
-      title.title = a.targets[0].locator.tag + ' · ' + title.textContent;
+        a.targets[0]?.locator.nearbyHeading ||
+        a.targets[0]?.locator.accessibleName ||
+        (a.selectionKind === 'page'
+          ? 'Whole page'
+          : a.selectionKind === 'region'
+            ? 'Selected area'
+            : 'Page element');
+      title.title =
+        (a.targets[0]?.locator.tag || a.selectionKind) +
+        ' · ' +
+        title.textContent;
       title.onclick = () => revisit(a);
       title.setAttribute('aria-label', 'Open note ' + (i + 1));
       const status = document.createElement('span');
       status.className =
         'status' + (a.status === 'needs-reattachment' ? ' missing' : '');
       status.textContent =
-        a.status === 'needs-reattachment' ? 'Reattach' : a.status;
+        a.status === 'needs-reattachment'
+          ? 'Reattach'
+          : a.review?.outcome === 'accepted'
+            ? 'Accepted'
+            : a.status;
       status.hidden = a.status === 'open';
       const comment = document.createElement('p');
       comment.className = 'comment';
@@ -427,7 +482,29 @@ async function mount() {
       summary.setAttribute('aria-label', 'Details for note ' + (i + 1));
       const detailActions = document.createElement('div');
       detailActions.className = 'detail-actions';
-      details.append(summary, targetDescription, imageState, detailActions);
+      const priority = document.createElement('select');
+      priority.setAttribute('aria-label', 'Priority for note ' + (i + 1));
+      priority.innerHTML =
+        '<option value="now">Now</option><option value="later">Later</option>';
+      priority.value = a.priority || 'now';
+      priority.onchange = () =>
+        act(async () => {
+          const updated = await rpc<Annotation>({
+            type: 'PATCH_REVIEW',
+            id: a.id,
+            patch: { priority: priority.value as 'now' | 'later' },
+          });
+          Object.assign(a, updated);
+          renderNotes();
+          await reviews?.refreshSummary();
+        });
+      details.append(
+        summary,
+        targetDescription,
+        imageState,
+        priority,
+        detailActions,
+      );
       actions.append(title);
       const button = (text: string, fn: () => void, parent = actions) => {
         const b = document.createElement('button');
@@ -441,35 +518,38 @@ async function mount() {
       };
       button(a.resolution === 'addressed' ? 'Reopen' : 'Mark addressed', () =>
         act(async () => {
-          a.resolution = a.resolution === 'addressed' ? 'open' : 'addressed';
-          a.status =
-            a.attachment.state === 'attached'
-              ? a.resolution
-              : 'needs-reattachment';
-          a.updatedAt = new Date().toISOString();
-          await rpc({ type: 'PUT', annotation: a });
+          const updated = await rpc<Annotation>({
+            type: 'PATCH_REVIEW',
+            id: a.id,
+            patch: {
+              resolution: a.resolution === 'addressed' ? 'open' : 'addressed',
+            },
+          });
+          Object.assign(a, updated);
+          await reviews?.refreshSummary();
           renderNotes();
         }),
       );
-      button(
-        'Reattach',
-        () =>
-          act(() =>
-            changeSelection(() => {
-              reattaching = a.id;
-              selectedId = a.id;
-              selected = [];
-              feedback.value = a.originalComment;
-              setReviewing(true);
-              setNotice(
-                'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
-              );
-              renderSelection();
-              renderNotes();
-            }),
-          ),
-        detailActions,
-      );
+      if (a.targets.length)
+        button(
+          'Reattach',
+          () =>
+            act(() =>
+              changeSelection(() => {
+                reattaching = a.id;
+                selectedId = a.id;
+                selected = [];
+                feedback.value = a.originalComment;
+                setReviewing(true);
+                setNotice(
+                  'Select the intended target, then choose Attach here. Your original words and previous context are preserved.',
+                );
+                renderSelection();
+                renderNotes();
+              }),
+            ),
+          detailActions,
+        );
       button(
         'Delete',
         () => {
@@ -482,6 +562,7 @@ async function mount() {
               if (selectedId === a.id) clear();
               renderNotes();
               draw();
+              await reviews?.refreshSummary();
             });
         },
         detailActions,
@@ -519,6 +600,8 @@ async function mount() {
       const current = annotations;
       const next = new Map<string, Element[]>();
       for (const a of current) {
+        if (a.selectionKind === 'page' || a.selectionKind === 'region')
+          continue;
         const matches = a.targets.map((target) => matchTarget(target));
         const failure = matches.find((m) => m.state !== 'attached');
         const state = failure?.state || 'attached';
@@ -533,7 +616,12 @@ async function mount() {
           a.attachment = { state, reason, checkedAt: new Date().toISOString() };
           a.status = state === 'attached' ? a.resolution : 'needs-reattachment';
           a.updatedAt = new Date().toISOString();
-          await rpc({ type: 'PUT', annotation: a });
+          const updated = await rpc<Annotation>({
+            type: 'PATCH_ATTACHMENT',
+            id: a.id,
+            attachment: a.attachment,
+          });
+          Object.assign(a, updated);
         }
       }
       if (current === annotations) {
@@ -556,10 +644,22 @@ async function mount() {
     $('.page-title').title = page.title;
     annotations = await rpc<Annotation[]>({ type: 'LIST', pageKey: page.key });
     await reconcile();
+    await reviews?.refreshSummary();
   }
   function clear() {
     voice.reset();
+    if (selectionMode === 'page') {
+      selectionMode = 'element';
+      for (const button of root.querySelectorAll<HTMLElement>('[data-mode]'))
+        button.setAttribute(
+          'aria-pressed',
+          String(button.dataset.mode === selectionMode),
+        );
+      $('.hint').textContent = 'Click something you want to change';
+    }
     quote = undefined;
+    regionDraft = undefined;
+    regionPreview = undefined;
     selected = [];
     selectedId = null;
     reattaching = null;
@@ -568,7 +668,10 @@ async function mount() {
   }
   function setReviewing(value: boolean) {
     reviewing = value;
-    shield.hidden = !selectionActive() || selectionMode === 'text';
+    shield.hidden =
+      !selectionActive() ||
+      selectionMode === 'text' ||
+      selectionMode === 'page';
     $('.page-context').classList.toggle('paused', !value);
     $('[data-action=pause]').title = value
       ? 'Pause selection to interact with the page'
@@ -581,7 +684,7 @@ async function mount() {
     draw();
   }
   function selectionActive() {
-    return opened && reviewing && !settingsOpen && !minimized;
+    return opened && reviewing && !settingsOpen && !reviewOpen && !minimized;
   }
   function showSettings(value: boolean) {
     closeClearPage();
@@ -619,7 +722,10 @@ async function mount() {
     if (!value) voice.stop();
     opened = value;
     panel.hidden = !value;
-    shield.hidden = !selectionActive() || selectionMode === 'text';
+    shield.hidden =
+      !selectionActive() ||
+      selectionMode === 'text' ||
+      selectionMode === 'page';
     act(async () => {
       await rpc({ type: 'ENABLED', enabled: value });
     });
@@ -634,7 +740,19 @@ async function mount() {
         }
         selectedId = a.id;
         reattaching = null;
-        quote = a.targets[0].range;
+        quote = a.targets[0]?.range;
+        regionDraft = undefined;
+        if (!a.targets.length) {
+          selected = [];
+          setNotice(
+            a.selectionKind === 'page'
+              ? 'Whole-page feedback. Use Check changes to see the original view.'
+              : 'Area feedback refers to the captured view. Use Check changes to compare it with this page.',
+          );
+          renderSelection();
+          renderNotes();
+          return;
+        }
         const targets = resolved.get(a.id);
         if (!targets?.length || a.status === 'needs-reattachment') {
           selected = [];
@@ -664,7 +782,7 @@ async function mount() {
     updateControls();
     try {
       if (!(await voice.finishDraft())) return;
-      if (!reattaching && selected.length && feedback.value.trim()) {
+      if (!reattaching && hasSelection() && feedback.value.trim()) {
         if (!(await save())) return;
       } else if (!reattaching && selected.length) {
         feedback.value = '';
@@ -689,15 +807,84 @@ async function mount() {
         ) || null
     );
   }
+  let areaStart:
+    { x: number; y: number; scrollX: number; scrollY: number } | undefined;
+  shield.addEventListener('pointerdown', (event) => {
+    if (
+      selectionMode !== 'region' ||
+      !selectionActive() ||
+      busy ||
+      transitioning ||
+      event.button !== 0
+    )
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    areaStart = { x: event.clientX, y: event.clientY, scrollX, scrollY };
+    shield.setPointerCapture(event.pointerId);
+  });
   shield.addEventListener('pointermove', (event) => {
-    if (!selectionActive() || busy) return;
+    if (!areaStart) return;
+    event.stopImmediatePropagation();
+    regionPreview = {
+      x: Math.min(areaStart.x, event.clientX),
+      y: Math.min(areaStart.y, event.clientY),
+      width: Math.abs(event.clientX - areaStart.x),
+      height: Math.abs(event.clientY - areaStart.y),
+    };
+    draw();
+  });
+  shield.addEventListener('pointerup', (event) => {
+    if (!areaStart) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const start = areaStart;
+    areaStart = undefined;
+    if (shield.hasPointerCapture(event.pointerId))
+      shield.releasePointerCapture(event.pointerId);
+    const area = regionPreview;
+    regionPreview = undefined;
+    if (
+      !area ||
+      area.width < 8 ||
+      area.height < 8 ||
+      scrollX !== start.scrollX ||
+      scrollY !== start.scrollY
+    ) {
+      draw();
+      return;
+    }
+    act(() =>
+      changeSelection(() => {
+        regionDraft = area;
+        selected = [];
+        quote = undefined;
+        selectedId = reattaching;
+        renderSelection();
+        feedback.focus();
+      }),
+    );
+  });
+  shield.addEventListener('pointercancel', () => {
+    areaStart = undefined;
+    regionPreview = undefined;
+    draw();
+  });
+  shield.addEventListener('pointermove', (event) => {
+    if (!selectionActive() || busy || selectionMode === 'region') return;
     hovered = underPointer(event.clientX, event.clientY);
     draw();
   });
   shield.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (busy || transitioning || !selectionActive()) return;
+    if (
+      busy ||
+      transitioning ||
+      !selectionActive() ||
+      selectionMode === 'region'
+    )
+      return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
     const multiple = selectionMode === 'multiple' || event.shiftKey;
@@ -708,6 +895,7 @@ async function mount() {
         return;
       }
       quote = undefined;
+      regionDraft = undefined;
       if (multiple) {
         if (selected.includes(element))
           selected = selected.filter((el) => el !== element);
@@ -754,6 +942,13 @@ async function mount() {
         if (!selectionActive()) return;
         const path = event.composedPath();
         if (path.includes(panel) || path.includes(markers)) return;
+        if (selectionMode === 'page') return;
+        if (
+          selectionMode === 'region' &&
+          path.includes(shield) &&
+          type.startsWith('pointer')
+        )
+          return;
         if (
           selectionMode === 'text' &&
           ['pointerdown', 'pointerup', 'mousedown', 'mouseup'].includes(type)
@@ -800,11 +995,11 @@ async function mount() {
       if (event.key === 'Escape') {
         if (busy || transitioning) return;
         if (!$('.clear-page-confirmation').hidden) closeClearPage(true);
-        else if (!$('.export-menu').hidden) closeExport(true);
+        else if (reviews?.isOpen) closeExport(true);
         else if (voice.recording) voice.stop();
         else if (settingsOpen && !minimized) showSettings(false);
         else if (minimized) setMinimized(false);
-        else if (selected.length || reattaching) {
+        else if (hasSelection() || reattaching) {
           clear();
           setNotice('Selection cleared.', true);
         } else setOpened(false);
@@ -817,6 +1012,7 @@ async function mount() {
         event.key === 'Enter' &&
         (event.ctrlKey || event.metaKey) &&
         !settingsOpen &&
+        !reviewOpen &&
         !minimized
       ) {
         event.preventDefault();
@@ -824,7 +1020,11 @@ async function mount() {
         return;
       }
       if (event.composedPath().includes(panel)) return;
-      if (selectionActive() && ['Enter', ' '].includes(event.key)) {
+      if (
+        selectionActive() &&
+        selectionMode !== 'page' &&
+        ['Enter', ' '].includes(event.key)
+      ) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
@@ -859,6 +1059,8 @@ async function mount() {
       act(() =>
         changeSelection(() => {
           selectionMode = button.dataset.mode as typeof selectionMode;
+          regionDraft = undefined;
+          regionPreview = undefined;
           selected = [];
           quote = undefined;
           hovered = null;
@@ -869,9 +1071,14 @@ async function mount() {
               ? 'Drag across a passage on the page'
               : selectionMode === 'multiple'
                 ? 'Select up to 12 elements on the page'
-                : 'Select an element on the page';
+                : selectionMode === 'region'
+                  ? 'Drag over an area you want to change'
+                  : selectionMode === 'page'
+                    ? 'Add feedback about the whole page'
+                    : 'Click something you want to change';
           setReviewing(true);
           renderSelection();
+          if (selectionMode === 'page') feedback.focus();
         }),
       );
     };
@@ -904,7 +1111,7 @@ async function mount() {
     if (
       busy ||
       voice.recording ||
-      !selected.length ||
+      !hasSelection() ||
       (!reattaching && !feedback.value.trim())
     )
       return false;
@@ -945,7 +1152,9 @@ async function mount() {
             host,
             root,
             'screenshots/' + id + '-' + Date.now() + '.png',
-            targets.map((target) => target.bounds),
+            regionDraft
+              ? [regionDraft]
+              : targets.map((target) => target.bounds),
           )
         : {
             status: 'unavailable' as const,
@@ -961,15 +1170,24 @@ async function mount() {
         createdAt: old?.createdAt ?? now,
         updatedAt: now,
         page: currentPage,
-        selectionKind: quote
-          ? 'text-range'
-          : selected.length > 1
-            ? 'multiple'
-            : 'element',
+        selectionKind:
+          selectionMode === 'page'
+            ? 'page'
+            : regionDraft
+              ? 'region'
+              : quote
+                ? 'text-range'
+                : selected.length > 1
+                  ? 'multiple'
+                  : 'element',
         targets,
+        ...(regionDraft ? { region: { ...regionDraft } } : {}),
         screenshot,
         status: old?.resolution ?? 'open',
         resolution: old?.resolution ?? 'open',
+        priority: old?.priority ?? 'now',
+        sessionId: old?.sessionId ?? reviews?.sessionId,
+        ...(old?.review ? { review: old.review } : {}),
         attachment: {
           state: 'attached',
           reason: old ? 'Explicitly reattached by user.' : 'Selected by user.',
@@ -989,6 +1207,7 @@ async function mount() {
           : [],
       };
       await rpc({ type: 'PUT', annotation });
+      await reviews?.refreshSummary();
       resolved.set(id, [...selected]);
       if (old)
         annotations = annotations.map((a) => (a.id === id ? annotation : a));
@@ -1020,8 +1239,7 @@ async function mount() {
     }
   }
   function closeExport(restoreFocus = false) {
-    $('.export-menu').hidden = true;
-    $('[data-action=export]').setAttribute('aria-expanded', 'false');
+    reviews?.close();
     if (restoreFocus) $('[data-action=export]').focus();
   }
   function closeClearPage(restoreFocus = false) {
@@ -1061,7 +1279,7 @@ async function mount() {
         await rpc({ type: 'DELETE_PAGE', pageKey: key });
         annotations = [];
         resolved.clear();
-        exportSnapshot = [];
+        await reviews?.refreshSummary();
         if (reattaching) {
           feedback.value = '';
           voice.reset();
@@ -1082,58 +1300,25 @@ async function mount() {
         else feedback.focus({ preventScroll: true });
       }
     });
-  $('[data-action=export]').onclick = () => {
-    if (!$('.export-menu').hidden) {
-      closeExport();
-      return;
-    }
+  const openReview = (view: 'sessions' | 'handoff' | 'check') =>
     act(() =>
       changeSelection(async () => {
         while (matching)
           await new Promise((resolve) => setTimeout(resolve, 20));
         if ((await pageContext()).key !== page.key) {
-          setNotice('The page changed. Reopen export after the notes load.');
+          setNotice('The page changed. Open the review after the notes load.');
           return;
         }
-        annotations = await rpc<Annotation[]>({
-          type: 'LIST',
-          pageKey: page.key,
-        });
-        while (matching)
-          await new Promise((resolve) => setTimeout(resolve, 20));
-        await reconcile();
-        exportSnapshot = structuredClone(annotations);
-        if (!exportSnapshot.length) return;
-        $('.export-menu').hidden = false;
-        $('[data-action=export]').setAttribute('aria-expanded', 'true');
-        $('[data-export=copy]').focus();
+        await load();
+        await reviews?.open(view);
       }),
     );
-  };
-  const exportItems = [
-    ...root.querySelectorAll<HTMLButtonElement>('[data-export]'),
-  ];
-  $('.export-menu').addEventListener('keydown', (event) => {
-    const index = exportItems.indexOf(root.activeElement as HTMLButtonElement);
-    const next =
-      event.key === 'ArrowDown'
-        ? (index + 1) % exportItems.length
-        : event.key === 'ArrowUp'
-          ? (index + exportItems.length - 1) % exportItems.length
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? exportItems.length - 1
-              : -1;
-    if (next >= 0) {
-      event.preventDefault();
-      exportItems[next].focus();
-    } else if (event.key === 'Tab') closeExport(true);
-  });
+  $('[data-action=export]').onclick = () => openReview('handoff');
+  $('[data-action=sessions]').onclick = () => openReview('sessions');
+  $('[data-action=check-changes]').onclick = () => openReview('check');
   window.addEventListener(
     'pointerdown',
     (event) => {
-      if (!event.composedPath().includes($('.footer'))) closeExport();
       if (
         !busy &&
         !event.composedPath().includes($('.clear-page-confirmation')) &&
@@ -1143,55 +1328,6 @@ async function mount() {
     },
     true,
   );
-  $('.footer').addEventListener('focusout', (event) => {
-    if (!$('.footer').contains(event.relatedTarget as Node | null))
-      closeExport();
-  });
-  for (const button of exportItems)
-    button.onclick = () =>
-      act(async () => {
-        if (busy || transitioning || !exportSnapshot.length) return;
-        busy = true;
-        updateControls();
-        closeExport();
-        try {
-          const format = button.dataset.export;
-          if (format === 'copy') {
-            await copyText(createMarkdown(exportSnapshot), root);
-            setNotice('Markdown copied.', true);
-          } else {
-            const zip = format === 'zip';
-            const blob = zip
-              ? new Blob([new Uint8Array(createBundle(exportSnapshot))], {
-                  type: 'application/zip',
-                })
-              : new Blob([createMarkdown(exportSnapshot)], {
-                  type: 'text/markdown;charset=utf-8',
-                });
-            const url = URL.createObjectURL(blob),
-              link = document.createElement('a');
-            link.href = url;
-            link.download =
-              'pointnote-feedback-' +
-              new Date().toISOString().slice(0, 10) +
-              (zip ? '.zip' : '.md');
-            panel.append(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 60000);
-            setNotice(
-              zip
-                ? 'ZIP ready: feedback.md, feedback.json, and screenshots.'
-                : 'Markdown file ready.',
-              true,
-            );
-          }
-        } finally {
-          busy = false;
-          updateControls();
-          $('[data-action=export]').focus();
-        }
-      });
   chrome.runtime.onMessage.addListener((message: { type: string }) => {
     if (message.type === 'TOGGLE' && !busy && !transitioning)
       setOpened(!opened);
@@ -1227,6 +1363,20 @@ async function mount() {
   });
   window.addEventListener('scroll', draw, true);
   window.addEventListener('resize', draw);
+  const invalidateArea = (event: Event) => {
+    if (
+      event.composedPath().includes(panel) ||
+      busy ||
+      transitioning ||
+      !regionDraft
+    )
+      return;
+    regionDraft = undefined;
+    renderSelection();
+    setNotice('The view moved. Select the area again; your draft is kept.');
+  };
+  window.addEventListener('scroll', invalidateArea, true);
+  window.addEventListener('resize', invalidateArea);
   setInterval(() => {
     if (location.href !== lastUrl && !busy && !transitioning) {
       closeClearPage();
@@ -1234,6 +1384,8 @@ async function mount() {
       voice.stop();
       lastUrl = location.href;
       selected = [];
+      regionDraft = undefined;
+      regionPreview = undefined;
       selectedId = null;
       reattaching = null;
       resolved.clear();
@@ -1244,6 +1396,21 @@ async function mount() {
       act(load);
     }
   }, 700);
+  reviews = mountReviewWorkspace(root, {
+    pageKey: () => page.key,
+    onView: (value) => {
+      reviewOpen = value;
+      voice.stop();
+      hovered = null;
+      $('.workspace').hidden = value;
+      $('.footer').hidden = value;
+      setReviewing(reviewing);
+    },
+    onSummary: updateControls,
+    reload: load,
+    locate: revisit,
+    notice: setNotice,
+  });
   try {
     await load();
     await rpc({ type: 'ENABLED', enabled: true });

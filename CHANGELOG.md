@@ -2,6 +2,13 @@
 
 ## 0.1.0 — Unreleased
 
+- Prepare handoff with selected notes, Now/Later priority, and separate instructions; export schema 1.1.0.
+- Named review sessions spanning pages, with explicit inclusion of older notes.
+- Check changes using original evidence, human acceptance, and preserved original comments plus follow-up instructions.
+- Whole-page and drawn-area feedback, including viewport-change protection for unsaved areas.
+- Validated local backups and atomic restore without overwriting existing notes.
+- IndexedDB v2 migration preserving existing annotations.
+
 - Redesigned review workspace with crisp edges, compact controls, dedicated settings, and locally bundled icons.
 - Draggable, resizable, minimizable panel with keyboard controls, saved layout, and viewport recovery.
 - Prominent hold-to-talk control, hands-free recording, and protection against stale recording results.

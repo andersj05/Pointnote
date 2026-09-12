@@ -2,11 +2,11 @@
 
 ## Where data lives
 
-Annotations, page context, approved comments, original voice transcripts, and PNG screenshots live in the extension's IndexedDB database in the current browser profile. Nothing is sent to a Pointnote server. There is no telemetry or analytics. A small session-storage entry remembers which tabs had review open; it does not hold page content.
+Annotations, page context, review sessions and instructions, review decisions and follow-ups, approved comments, original voice transcripts, and PNG screenshots live in the extension's IndexedDB database in the current browser profile. Nothing is sent to a Pointnote server. There is no telemetry or analytics. A small session-storage entry remembers which tabs had review open; it does not hold page content.
 
 Export is a local browser download. Pointnote does not contact an agent, upload an export, read source files, or edit code. Uninstalling the extension removes local storage; export anything you want to retain.
 
-Panel position and size, screenshot preference, transcription provider, language, voice shortcut, and microphone setup completion are stored in extension-local storage. These preferences contain no page content. Explicit browser-service audio consent is remembered until unchecked in Voice settings. Existing installations without saved consent require opt-in. Browser microphone permission is separately controlled by the browser for the Pointnote extension origin.
+The active review session ID, panel position and size, screenshot preference, transcription provider, language, voice shortcut, and microphone setup completion are stored in extension-local storage. These preferences contain no page content. Explicit browser-service audio consent is remembered until unchecked in Voice settings. Existing installations without saved consent require opt-in. Browser microphone permission is separately controlled by the browser for the Pointnote extension origin.
 
 ## Permissions
 
@@ -55,3 +55,11 @@ Browser-service recognition is optional and requires a user checkbox acknowledgi
 Content scripts run in an isolated JavaScript world, but their sidebar exists in the shared page DOM. Shadow DOM provides style isolation; it does not make notes secret from a hostile page. Export excerpts are untrusted data. The receiving agent's instructions explicitly distinguish those excerpts from the user's feedback.
 
 Microphone setup uses `getUserMedia` in a bundled extension page and immediately stops all tracks. Recording uses a single extension-owned offscreen document and an extension runtime port to the initiating top-level content script. Only that port receives its transcript; disconnecting aborts recording. Concurrent recording from another tab is refused. No page microphone permission or persistent host access is requested.
+
+## Review sessions and backups
+
+Sessions explicitly group notes across pages. The review UI can show session notes from other pages and screenshots captured there; only use it on pages you trust. Existing unassigned notes join a session only through an explicit action. No page URLs are merged or inferred from similar-looking previews.
+
+A handoff includes only the notes selected in its preview, plus the instructions entered for that handoff. Current-page targets are rechecked when opening the preview; context from other pages is a saved snapshot. Now/Later priority and human acceptance are local metadata.
+
+Backup files contain all local sessions, notes, original transcripts, review metadata, and inline screenshot data. They are ordinary local downloads, not uploads. Import previews the contents before restoration, applies structural validation and excerpt sanitization, and keeps existing records when IDs overlap. Imported screenshots must be inline PNGs; the UI does not fetch remote images. Original comments, session instructions, and follow-ups remain the user's words and are not automatically redacted.

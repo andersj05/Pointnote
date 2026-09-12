@@ -3,7 +3,13 @@ import {
   putAnnotation,
   deleteAnnotation,
   deletePageAnnotations,
+  readLibrary,
+  putSession,
+  patchReview,
+  patchAttachment,
+  restoreLibrary,
 } from './storage';
+import { BACKUP_LIMIT, validateLibrary } from './backup';
 import type { Request, Response } from './types';
 import { mountVoiceBackground } from './voice-background';
 mountVoiceBackground();
@@ -65,6 +71,28 @@ chrome.runtime.onMessage.addListener(
       switch (message.type) {
         case 'LIST':
           return listAnnotations(message.pageKey);
+        case 'LIBRARY':
+          return readLibrary();
+        case 'RESTORE':
+          if (JSON.stringify(message.library).length > BACKUP_LIMIT)
+            throw new Error('Backup is too large.');
+          return restoreLibrary(validateLibrary(message.library));
+        case 'PUT_SESSION':
+          await putSession(message.session);
+          return null;
+        case 'PATCH_REVIEW':
+          return patchReview(message.id, message.patch);
+        case 'PATCH_ATTACHMENT':
+          if (
+            !message.attachment ||
+            !['attached', 'missing', 'ambiguous'].includes(
+              message.attachment.state,
+            ) ||
+            typeof message.attachment.reason !== 'string' ||
+            message.attachment.reason.length > 5000
+          )
+            throw new Error('Attachment update is invalid.');
+          return patchAttachment(message.id, message.attachment);
         case 'PUT': {
           const a = message.annotation;
           if (
@@ -72,7 +100,8 @@ chrome.runtime.onMessage.addListener(
             !/^[\w-]{36}$/.test(a.id) ||
             !a.originalComment.trim() ||
             a.originalComment.length > 20000 ||
-            !a.targets.length ||
+            (!a.targets.length &&
+              !['page', 'region'].includes(a.selectionKind)) ||
             a.targets.length > 12 ||
             JSON.stringify(a).length > 16000000
           )
@@ -121,7 +150,11 @@ chrome.runtime.onMessage.addListener(
     const task =
       message.type === 'PUT' ||
       message.type === 'DELETE' ||
-      message.type === 'DELETE_PAGE'
+      message.type === 'DELETE_PAGE' ||
+      message.type === 'PUT_SESSION' ||
+      message.type === 'PATCH_REVIEW' ||
+      message.type === 'PATCH_ATTACHMENT' ||
+      message.type === 'RESTORE'
         ? (writeQueue = writeQueue.then(handle, handle))
         : message.type === 'CAPTURE'
           ? (captureQueue = captureQueue.then(handle, handle))
