@@ -9,6 +9,8 @@ import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
 import { mountPanel } from './panel';
+import { comparisonDimensions, comparisonSummary } from './comparison';
+import type { ComparisonDimension } from './types';
 import { readPreferences, type Preferences } from './preferences';
 import {
   defaultShortcut,
@@ -53,10 +55,27 @@ async function mount() {
         <div class="page-context"><span class="dot" aria-hidden="true"></span><span class="page-title"></span><button class="quiet" data-action="pause" title="Pause selection to interact with the page">Pause selection</button></div>
         <div class="body">
           <div class="tabs" role="group" aria-label="Selection mode"><button data-mode="element" aria-pressed="true">${icon('cursor')}Element</button><button data-mode="text" aria-pressed="false">${icon('text')}Text range</button><button data-mode="multiple" aria-pressed="false">${icon('layers')}Multiple</button></div>
-          <div class="scope-tools"><button class="quiet" data-mode="page" aria-pressed="false">Page note</button><button class="quiet" data-mode="region" aria-pressed="false">Select area</button></div>
+          <div class="scope-tools"><button class="quiet compare-mode" data-mode="compare" aria-pressed="false">${icon('swap')}Compare</button><button class="quiet" data-mode="page" aria-pressed="false">Page note</button><button class="quiet" data-mode="region" aria-pressed="false">Select area</button></div>
           <form class="composer">
           <div class="selection-prompt">${icon('cursor')}<span class="hint">Click something you want to change</span></div>
           <div class="target" hidden><div class="target-top"><span class="target-name sr-only"></span><button class="quiet" type="button" data-action="parent">↑ Parent</button></div><div class="excerpt"></div></div>
+          <div class="comparison-picker" hidden>
+            <div class="comparison-pair">
+              <button type="button" class="comparison-target" data-compare-slot="0" aria-label="Choose element to change"><span class="comparison-role">1 · Change this</span><span class="comparison-name">Select on the page</span></button>
+              <button type="button" class="icon comparison-swap" aria-label="Swap change and reference" title="Swap change and reference">${icon('swap')}</button>
+              <button type="button" class="comparison-target reference" data-compare-slot="1" aria-label="Choose reference element"><span class="comparison-role">2 · Use as reference</span><span class="comparison-name">Select on the page</span></button>
+            </div>
+            <div class="comparison-bottom"><label>Match <select aria-label="What to match">${Object.entries(
+              comparisonDimensions,
+            )
+              .map(
+                ([value, label]) =>
+                  `<option value="${value}">${label}</option>`,
+              )
+              .join(
+                '',
+              )}</select></label><span class="comparison-hint" aria-live="polite"></span></div>
+          </div>
             <label class="sr-only" for="feedback">Your feedback</label>
             <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback" aria-describedby="save-hint"></textarea>
             <div class="composer-toolbar"><div class="voice-slot"></div>
@@ -109,8 +128,10 @@ async function mount() {
     refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let matching = false,
     matchAgain = false;
-  let selectionMode: 'element' | 'text' | 'multiple' | 'page' | 'region' =
-    'element';
+  let selectionMode:
+    'element' | 'text' | 'multiple' | 'page' | 'region' | 'compare' = 'element';
+  let comparisonSlot: 0 | 1 | null = 0;
+  let comparisonDimension: ComparisonDimension = 'overall';
   let regionDraft: Bounds | undefined;
   let regionPreview: Bounds | undefined;
   let quote: Target['range'];
@@ -218,6 +239,19 @@ async function mount() {
       selected.length > 0 || selectionMode === 'page' || Boolean(regionDraft)
     );
   }
+  function setSelectionMode(mode: typeof selectionMode) {
+    selectionMode = mode;
+    for (const button of root.querySelectorAll<HTMLElement>('[data-mode]'))
+      button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+    $('.hint').textContent = {
+      element: 'Click something you want to change',
+      text: 'Drag across a passage on the page',
+      multiple: 'Select up to 12 elements on the page',
+      region: 'Drag over an area you want to change',
+      page: 'Add feedback about the whole page',
+      compare: 'Choose what to change, then its reference',
+    }[mode];
+  }
   function updateControls() {
     const locked = busy || transitioning || Boolean(reviews?.isBusy);
     $<HTMLButtonElement>('[data-action=clear-page]').disabled =
@@ -240,6 +274,7 @@ async function mount() {
       locked ||
       voice.recording ||
       !hasSelection() ||
+      (selectionMode === 'compare' && selected.length !== 2) ||
       (!reattaching && !feedback.value.trim());
     $<HTMLButtonElement>('[data-action=export]').disabled =
       locked ||
@@ -268,9 +303,11 @@ async function mount() {
       ? 'Finish recording before saving'
       : !hasSelection()
         ? 'Select a target on the page first'
-        : !reattaching && !feedback.value.trim()
-          ? 'Write or record a note first'
-          : 'Save note · Ctrl+Enter or ⌘+Enter';
+        : selectionMode === 'compare' && selected.length !== 2
+          ? 'Choose both the element to change and its reference'
+          : !reattaching && !feedback.value.trim()
+            ? 'Write or record a note first'
+            : 'Save note · Ctrl+Enter or ⌘+Enter';
     $('.save-hint').textContent = reattaching
       ? 'Confirm the new target below'
       : transitioning && voice.recording
@@ -285,7 +322,24 @@ async function mount() {
     for (const button of root.querySelectorAll<HTMLButtonElement>(
       '[data-mode]',
     ))
-      button.disabled = locked;
+      button.disabled =
+        locked ||
+        Boolean(
+          reattaching &&
+          annotations.find((a) => a.id === reattaching)?.comparison &&
+          button.dataset.mode !== 'compare',
+        );
+    for (const button of root.querySelectorAll<HTMLButtonElement>(
+      '[data-compare-slot]',
+    ))
+      button.disabled =
+        locked ||
+        voice.recording ||
+        (button.dataset.compareSlot === '1' && !selected.length);
+    $<HTMLButtonElement>('.comparison-swap').disabled =
+      locked || voice.recording || selected.length !== 2;
+    $<HTMLSelectElement>('[aria-label="What to match"]').disabled =
+      locked || voice.recording || Boolean(reattaching);
     for (const button of root.querySelectorAll<HTMLButtonElement>(
       '.card button',
     ))
@@ -293,9 +347,34 @@ async function mount() {
         locked || (voice.recording && !button.matches('.card-title'));
   }
   function renderSelection() {
+    const comparing = selectionMode === 'compare';
+    $('.comparison-picker').hidden = !comparing;
+    $('.target .excerpt').hidden = comparing;
+    $('.comparison-hint').textContent = !selected.length
+      ? 'Pick the first element'
+      : selected.length === 1
+        ? 'Now pick its reference'
+        : comparisonSlot !== null
+          ? 'Pick a replacement'
+          : 'Reference stays unchanged';
+    for (const button of root.querySelectorAll<HTMLButtonElement>(
+      '[data-compare-slot]',
+    )) {
+      const slot = Number(button.dataset.compareSlot);
+      button.setAttribute('aria-pressed', String(comparisonSlot === slot));
+      button.classList.toggle('filled', Boolean(selected[slot]));
+      const label = selected[slot]
+        ? safeText(selected[slot]).slice(0, 100) ||
+          selected[slot].tagName.toLowerCase()
+        : 'Select on the page';
+      button.querySelector('.comparison-name')!.textContent = label;
+      button.title = label;
+    }
+    $<HTMLSelectElement>('[aria-label="What to match"]').value =
+      comparisonDimension;
     $('.target').hidden = !hasSelection();
     $('.selection-prompt').hidden = hasSelection();
-    $('[data-action=parent]').hidden = !selected.length;
+    $('[data-action=parent]').hidden = !selected.length || comparing;
     if (selectionMode === 'page') {
       $('.target-name').textContent = 'Whole page';
       $('.excerpt').textContent = 'Feedback about this page as a whole';
@@ -345,11 +424,23 @@ async function mount() {
       });
       highlights.append(box);
     }
-    selected.forEach((el) => {
+    selected.forEach((el, index) => {
       const range = quote && rangeForQuote(el, quote.exact);
       if (range)
         for (const rect of range.getClientRects()) addOutline(el, false, rect);
       else addOutline(el, false);
+      if (selectionMode === 'compare') {
+        const box = highlights.lastElementChild as HTMLElement | null;
+        if (box) {
+          box.classList.add(
+            index === 0 ? 'change-outline' : 'reference-outline',
+          );
+          const label = document.createElement('span');
+          label.className = 'comparison-outline-label';
+          label.textContent = index === 0 ? '1 · Change this' : '2 · Reference';
+          box.append(label);
+        }
+      }
     });
     if (reviewing && hovered && !selected.includes(hovered))
       addOutline(hovered, true);
@@ -539,6 +630,11 @@ async function mount() {
                 reattaching = a.id;
                 selectedId = a.id;
                 selected = [];
+                comparisonSlot = 0;
+                if (a.comparison) {
+                  setSelectionMode('compare');
+                  comparisonDimension = a.comparison.dimension;
+                }
                 feedback.value = a.originalComment;
                 setReviewing(true);
                 setNotice(
@@ -569,6 +665,13 @@ async function mount() {
       );
       actions.append(details);
       card.append(head, actions);
+      if (a.comparison) {
+        const relation = document.createElement('div');
+        relation.className = 'comparison-summary';
+        relation.textContent = `Match ${comparisonDimensions[a.comparison.dimension].toLowerCase()} · ${a.targets[a.comparison.referenceTarget]?.locator.accessibleName || a.targets[a.comparison.referenceTarget]?.locator.text.slice(0, 65) || 'reference element'}`;
+        relation.title = comparisonSummary(a.comparison);
+        card.insertBefore(relation, actions);
+      }
       list.append(card);
     });
     if (annotations.length && !list.childElementCount) {
@@ -648,6 +751,7 @@ async function mount() {
   }
   function clear() {
     voice.reset();
+    comparisonSlot = 0;
     if (selectionMode === 'page') {
       selectionMode = 'element';
       for (const button of root.querySelectorAll<HTMLElement>('[data-mode]'))
@@ -742,6 +846,11 @@ async function mount() {
         reattaching = null;
         quote = a.targets[0]?.range;
         regionDraft = undefined;
+        if (a.comparison) {
+          setSelectionMode('compare');
+          comparisonDimension = a.comparison.dimension;
+          comparisonSlot = null;
+        } else if (selectionMode === 'compare') setSelectionMode('element');
         if (!a.targets.length) {
           selected = [];
           setNotice(
@@ -760,7 +869,12 @@ async function mount() {
             a.attachment.reason + ' Use Reattach to choose the target.',
           );
         } else {
-          selected = targets;
+          selected = a.comparison
+            ? [
+                targets[a.comparison.changeTarget],
+                targets[a.comparison.referenceTarget],
+              ]
+            : targets;
           targets[0].scrollIntoView({
             block: 'center',
             inline: 'nearest',
@@ -887,6 +1001,36 @@ async function mount() {
       return;
     const element = underPointer(event.clientX, event.clientY);
     if (!element) return;
+    if (selectionMode === 'compare') {
+      if (voice.recording) return;
+      const chooseComparison = () => {
+        if (!element.isConnected) return;
+        const slot = comparisonSlot ?? 0;
+        const other = selected[slot === 0 ? 1 : 0];
+        if (element === other) {
+          setNotice('Choose a different element for the reference.');
+          return;
+        }
+        selected[slot] = element;
+        comparisonSlot = selected.length === 2 ? null : 1;
+        quote = undefined;
+        regionDraft = undefined;
+        selectedId = reattaching;
+        hovered = null;
+        renderSelection();
+        if (selected.length === 2) feedback.focus();
+      };
+      if (selected.length === 2 && comparisonSlot === null && !reattaching) {
+        act(() =>
+          changeSelection(() => {
+            selected = [];
+            comparisonSlot = 0;
+            chooseComparison();
+          }),
+        );
+      } else chooseComparison();
+      return;
+    }
     const multiple = selectionMode === 'multiple' || event.shiftKey;
     if (multiple && voice.recording) return;
     const choose = () => {
@@ -1056,32 +1200,53 @@ async function mount() {
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-mode]'))
     button.onclick = () => {
       if (button.dataset.mode === selectionMode) return;
+      if (
+        button.dataset.mode === 'compare' &&
+        selected.length > 0 &&
+        selected.length <= 2 &&
+        !quote &&
+        !reattaching &&
+        !voice.recording
+      ) {
+        setSelectionMode('compare');
+        comparisonSlot = selected.length === 2 ? null : 1;
+        setReviewing(true);
+        renderSelection();
+        return;
+      }
       act(() =>
         changeSelection(() => {
-          selectionMode = button.dataset.mode as typeof selectionMode;
+          setSelectionMode(button.dataset.mode as typeof selectionMode);
+          comparisonSlot = 0;
           regionDraft = undefined;
           regionPreview = undefined;
           selected = [];
           quote = undefined;
           hovered = null;
-          for (const b of root.querySelectorAll('[data-mode]'))
-            b.setAttribute('aria-pressed', String(b === button));
-          $('.hint').textContent =
-            selectionMode === 'text'
-              ? 'Drag across a passage on the page'
-              : selectionMode === 'multiple'
-                ? 'Select up to 12 elements on the page'
-                : selectionMode === 'region'
-                  ? 'Drag over an area you want to change'
-                  : selectionMode === 'page'
-                    ? 'Add feedback about the whole page'
-                    : 'Click something you want to change';
           setReviewing(true);
           renderSelection();
           if (selectionMode === 'page') feedback.focus();
         }),
       );
     };
+  for (const button of root.querySelectorAll<HTMLButtonElement>(
+    '[data-compare-slot]',
+  ))
+    button.onclick = () => {
+      comparisonSlot = Number(button.dataset.compareSlot) as 0 | 1;
+      setReviewing(true);
+      renderSelection();
+    };
+  $('.comparison-swap').onclick = () => {
+    if (selected.length !== 2) return;
+    selected = [selected[1], selected[0]];
+    comparisonSlot = null;
+    renderSelection();
+  };
+  $<HTMLSelectElement>('[aria-label="What to match"]').onchange = (event) => {
+    comparisonDimension = (event.target as HTMLSelectElement)
+      .value as ComparisonDimension;
+  };
   $('[data-action=pause]').onclick = () => {
     if (!busy) {
       voice.stop();
@@ -1108,6 +1273,12 @@ async function mount() {
     act(save);
   });
   async function save(): Promise<boolean> {
+    if (selectionMode === 'compare' && selected.length !== 2) {
+      setNotice(
+        'Choose both the element to change and its reference before saving.',
+      );
+      return false;
+    }
     if (
       busy ||
       voice.recording ||
@@ -1181,6 +1352,15 @@ async function mount() {
                   ? 'multiple'
                   : 'element',
         targets,
+        ...(selectionMode === 'compare'
+          ? {
+              comparison: {
+                changeTarget: 0,
+                referenceTarget: 1,
+                dimension: comparisonDimension,
+              },
+            }
+          : {}),
         ...(regionDraft ? { region: { ...regionDraft } } : {}),
         screenshot,
         status: old?.resolution ?? 'open',
@@ -1200,6 +1380,7 @@ async function mount() {
               {
                 at: now,
                 targets: old.targets,
+                ...(old.comparison ? { comparison: old.comparison } : {}),
                 screenshot: old.screenshot,
                 page: old.page,
               },
@@ -1385,6 +1566,7 @@ async function mount() {
       lastUrl = location.href;
       selected = [];
       regionDraft = undefined;
+      comparisonSlot = 0;
       regionPreview = undefined;
       selectedId = null;
       reattaching = null;

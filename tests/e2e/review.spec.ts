@@ -183,6 +183,46 @@ test.afterEach(async ({}, info) => {
   }
 });
 
+test('comparison roles can swap, survive reload and remain explicit in a handoff', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Make the chart typography match this claim.');
+  await expect(
+    page.getByRole('button', { name: 'Save note', exact: true }),
+  ).toBeDisabled();
+  await select(page, '#retention-chart');
+  await page.getByRole('button', { name: 'Swap change and reference' }).click();
+  await page
+    .getByRole('combobox', { name: 'What to match' })
+    .selectOption('typography');
+  await expect(page.locator('[data-compare-slot="1"]')).toContainText('38%');
+  await page.screenshot({ path: info.outputPath('comparison-picker.png') });
+  await save(page, 'Make the chart typography match this claim.', 1);
+  await page.reload();
+  await expect(page.locator('.comparison-summary')).toContainText('typography');
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(await readFile((await (await download).path())!));
+  const exported = JSON.parse(strFromU8(files['feedback.json']))
+    .annotations[0] as Annotation;
+  expect(exported.targets[0].locator.id).toBe('retention-chart');
+  expect(exported.targets[1].locator.id).toBe('evidence-claim');
+  expect(exported.comparison).toEqual({
+    changeTarget: 0,
+    referenceTarget: 1,
+    dimension: 'typography',
+  });
+  expect(strFromU8(files['feedback.md'])).toContain(
+    'Keep the reference unchanged.',
+  );
+});
+
 test('handoff selects open Now notes and preserves exact instructions', async ({}, info) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');
