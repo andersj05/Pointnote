@@ -1,5 +1,7 @@
 import { safeUrl, sanitizedClone } from './context';
 import { applyReviewPatch, validateSession } from './review';
+import { validateComparison } from './comparison';
+import { validateMarks, isLocalPng } from './screenshot-edit';
 import type {
   Annotation,
   Bounds,
@@ -7,6 +9,8 @@ import type {
   ReviewLibrary,
   ReviewSession,
   Screenshot,
+  ScreenshotImage,
+  ScreenshotCrop,
   Target,
 } from './types';
 
@@ -83,23 +87,76 @@ function page(value: unknown): PageContext {
     },
   };
 }
-function screenshot(value: unknown): Screenshot {
-  const s = object(value);
-  if (s.status === 'unavailable')
-    return { status: 'unavailable', reason: text(s.reason, 5000) };
-  if (s.status !== 'available') return invalid();
+function image(s: Record<string, unknown>, maxWidth: number): ScreenshotImage {
   const path = text(s.path, 250);
   if (!/^screenshots\/[\w-]+\.png$/.test(path)) return invalid();
   const dataUrl = text(s.dataUrl, 16000000);
   if (!/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(dataUrl))
     return invalid();
   return {
-    status: 'available',
     path,
     dataUrl,
-    capturedAt: date(s.capturedAt),
-    width: number(s.width, 1, 1600),
+    width: number(s.width, 1, maxWidth),
     height: number(s.height, 1, 50000),
+    ...(s.marks !== undefined ? { marks: validateMarks(s.marks) } : {}),
+    ...(s.marked !== undefined
+      ? {
+          marked: (() => {
+            const marked = object(s.marked);
+            if (
+              marked.path !== path.replace(/\.png$/, '-marked.png') ||
+              !isLocalPng(marked.dataUrl)
+            )
+              return invalid();
+            return { path: String(marked.path), dataUrl: marked.dataUrl };
+          })(),
+        }
+      : {}),
+  };
+}
+function screenshot(value: unknown): Screenshot {
+  const s = object(value);
+  if (s.status === 'unavailable')
+    return { status: 'unavailable', reason: text(s.reason, 5000) };
+  if (s.status !== 'available') return invalid();
+  const crops: ScreenshotCrop[] | undefined =
+    s.crops === undefined
+      ? undefined
+      : list(s.crops, 12).map((value) => {
+          const c = object(value);
+          const identity =
+            c.targetIndex === undefined
+              ? {}
+              : { targetIndex: number(c.targetIndex, 0, 11) };
+          if (
+            identity.targetIndex !== undefined &&
+            !Number.isInteger(identity.targetIndex)
+          )
+            return invalid();
+          if (c.status === 'unavailable')
+            return {
+              ...identity,
+              status: 'unavailable',
+              reason: text(c.reason, 5000),
+            };
+          if (c.status !== 'available') return invalid();
+          return {
+            ...image(c, 2400),
+            ...identity,
+            status: 'available',
+            bounds: bounds(c.bounds),
+            clipped: bool(c.clipped),
+            height: number(c.height, 1, 2400),
+          };
+        });
+  return {
+    ...image(s, 1600),
+    status: 'available',
+    capturedAt: date(s.capturedAt),
+    ...(crops ? { crops } : {}),
+    ...(s.revision !== undefined
+      ? { revision: number(s.revision, 0, Number.MAX_SAFE_INTEGER) }
+      : {}),
     redactedRegions: number(s.redactedRegions, 0),
     note: text(s.note, 5000),
   };
@@ -154,6 +211,8 @@ function annotation(value: unknown): Annotation {
   )
     return invalid();
   const targets = list(a.targets, 12).map(target);
+  if (a.comparison !== undefined && a.selectionKind !== 'multiple')
+    return invalid();
   if (!targets.length && !['page', 'region'].includes(String(a.selectionKind)))
     return invalid();
   const originalComment = text(a.originalComment, 20000);
@@ -167,6 +226,9 @@ function annotation(value: unknown): Annotation {
     selectionKind: a.selectionKind as Annotation['selectionKind'],
     ...(a.selectionKind === 'region' ? { region: bounds(a.region) } : {}),
     targets,
+    ...(a.comparison !== undefined
+      ? { comparison: validateComparison(a.comparison, targets.length) }
+      : {}),
     screenshot: screenshot(a.screenshot),
     status:
       attachment.state === 'attached'
@@ -189,10 +251,19 @@ function annotation(value: unknown): Annotation {
     },
     reattachments: list(a.reattachments, 100).map((value) => {
       const r = object(value);
+      const previousTargets = list(r.targets, 12).map(target);
       return {
         at: date(r.at),
         page: page(r.page),
-        targets: list(r.targets, 12).map(target),
+        targets: previousTargets,
+        ...(r.comparison !== undefined
+          ? {
+              comparison: validateComparison(
+                r.comparison,
+                previousTargets.length,
+              ),
+            }
+          : {}),
         screenshot: screenshot(r.screenshot),
       };
     }),
@@ -247,7 +318,7 @@ export function validateLibrary(value: unknown): ReviewLibrary {
 export function createBackup(library: ReviewLibrary): string {
   const result = JSON.stringify({
     format: 'pointnote-backup',
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     exportedAt: new Date().toISOString(),
     ...library,
   });
@@ -270,7 +341,10 @@ export function parseBackup(raw: string): ReviewLibrary {
   } catch {
     return invalid();
   }
-  if (value.format !== 'pointnote-backup' || value.schemaVersion !== '1.0.0')
+  if (
+    value.format !== 'pointnote-backup' ||
+    !['1.0.0', '1.1.0'].includes(String(value.schemaVersion))
+  )
     return invalid();
   const library = validateLibrary(value);
   // Parse imported excerpts in an inert template, then apply the capture redaction rules.
