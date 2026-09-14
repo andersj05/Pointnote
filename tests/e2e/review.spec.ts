@@ -201,7 +201,7 @@ test('screenshot studio preserves masked close-ups, edits and original image fil
   await expect(studio).toBeVisible();
   await studio.locator('[data-view="1"]').click();
   await expect(studio.locator('.evidence-detail')).toContainText(
-    'before the full viewport was resized',
+    'target and its surroundings',
   );
   await studio.getByRole('button', { name: 'Arrow', exact: true }).click();
   const stage = studio.getByRole('group', { name: 'Screenshot canvas' });
@@ -349,6 +349,57 @@ test('comparison roles can swap, survive reload and remain explicit in a handoff
   expect(strFromU8(files['feedback.md'])).toContain(
     'Keep the reference unchanged.',
   );
+});
+
+test('comparison refinement and reattachment preserve the draft and its relationship', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Multiple', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await select(page, '#retention-chart');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Keep my precise comparison wording.');
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Choose element to change' }).click();
+  await select(page, '#report-title');
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toHaveValue('Keep my precise comparison wording.');
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page
+    .getByRole('combobox', { name: 'What to match' })
+    .selectOption('alignment');
+  await save(page, 'Keep my precise comparison wording.', 1);
+  await page.getByLabel('Details for note 1').click();
+  await page.getByRole('button', { name: 'Reattach', exact: true }).click();
+  await expect(
+    page.getByRole('combobox', { name: 'What to match' }),
+  ).toHaveValue('alignment');
+  await expect(
+    page.getByRole('combobox', { name: 'What to match' }),
+  ).toBeDisabled();
+  await select(page, '#report-title');
+  await expect(
+    page.getByRole('button', { name: 'Attach here', exact: true }),
+  ).toBeDisabled();
+  await select(page, '#retention-chart');
+  await page.getByRole('button', { name: 'Attach here', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .comment')).toHaveText(
+    'Keep my precise comparison wording.',
+  );
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(await readFile((await (await download).path())!));
+  const exported = JSON.parse(strFromU8(files['feedback.json']))
+    .annotations[0] as Annotation;
+  expect(exported.comparison?.dimension).toBe('alignment');
+  expect(exported.reattachments[0].comparison).toEqual(exported.comparison);
+  expect(exported.reattachments[0].targets[0].locator.id).toBe('report-title');
 });
 
 test('handoff selects open Now notes and preserves exact instructions', async ({}, info) => {

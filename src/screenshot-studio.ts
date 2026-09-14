@@ -323,6 +323,9 @@ export function mountScreenshotStudio(
     pointerId = undefined;
     draw();
   };
+  stage.onblur = () => {
+    $('.evidence-cursor').hidden = true;
+  };
   stage.onkeydown = (event) => {
     if (saving || !loaded || original || tool === 'view') return;
     const step = event.shiftKey ? 0.1 : 0.01;
@@ -519,7 +522,7 @@ export function mountScreenshotStudio(
               : `Target ${crop.targetIndex + 1}${role}`,
           detail: crop.clipped
             ? 'Close-up · only the visible portion was captured.'
-            : 'Close-up captured before the full viewport was resized.',
+            : 'A closer look at the target and its surroundings.',
         });
       }
       drafts = new Map(
@@ -556,6 +559,13 @@ export function mountScreenshotStudio(
         };
         views.append(button);
       });
+      for (const crop of value.screenshot.crops || []) {
+        if (crop.status !== 'unavailable') continue;
+        const missing = document.createElement('p');
+        missing.className = 'evidence-detail';
+        missing.textContent = `${crop.targetIndex === undefined ? 'Selected area' : `Target ${crop.targetIndex + 1}`}: ${crop.reason}`;
+        views.append(missing);
+      }
       await show(0);
       if (!overlay.hidden) $('[data-studio=close]').focus();
     },

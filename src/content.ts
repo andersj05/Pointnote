@@ -117,7 +117,6 @@ async function mount() {
   let reviews: ReturnType<typeof mountReviewWorkspace> | undefined = undefined;
   let reviewOpen = false;
   let screenshotOpen = false;
-  let studio: ReturnType<typeof mountScreenshotStudio> | undefined;
   let clearPageKey: string | undefined;
   let settingsOpen = false,
     minimized = false;
@@ -638,6 +637,8 @@ async function mount() {
                 reattaching = a.id;
                 selectedId = a.id;
                 selected = [];
+                quote = undefined;
+                regionDraft = undefined;
                 comparisonSlot = 0;
                 if (a.comparison) {
                   setSelectionMode('compare');
@@ -1650,7 +1651,7 @@ async function mount() {
     locate: revisit,
     notice: setNotice,
   });
-  studio = mountScreenshotStudio(root, {
+  const studio = mountScreenshotStudio(root, {
     onView: (value) => {
       screenshotOpen = value;
       panel.inert = value;

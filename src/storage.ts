@@ -53,11 +53,32 @@ export async function putAnnotation(annotation: Annotation): Promise<void> {
     const current = store.get(annotation.id);
     current.onsuccess = () => {
       const previous = current.result as Annotation | undefined;
+      const incomingHistory = annotation.reattachments.at(-1);
+      const newAttachment =
+        previous &&
+        incomingHistory &&
+        (annotation.reattachments.length > previous.reattachments.length ||
+          incomingHistory.at !== previous.reattachments.at(-1)?.at);
       // Capture/reattachment writes cannot undo review decisions made in another tab.
       const next = previous
         ? {
             ...annotation,
             originalComment: previous.originalComment,
+            // Keep the latest screenshot edits if another tab reattaches an older copy.
+            reattachments: newAttachment
+              ? [
+                  ...previous.reattachments,
+                  {
+                    at: incomingHistory.at,
+                    targets: previous.targets,
+                    ...(previous.comparison
+                      ? { comparison: previous.comparison }
+                      : {}),
+                    screenshot: previous.screenshot,
+                    page: previous.page,
+                  },
+                ]
+              : annotation.reattachments,
             priority: previous.priority,
             sessionId: previous.sessionId,
             review: previous.review,

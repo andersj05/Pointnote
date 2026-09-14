@@ -4,6 +4,7 @@ import { createBundle, createMarkdown } from './export';
 import { isReadyForHandoff } from './review';
 import { pageContext } from './context';
 import { BACKUP_LIMIT, createBackup, parseBackup } from './backup';
+import { screenshotImages } from './screenshot-edit';
 import type {
   Annotation,
   HandoffContext,
@@ -412,6 +413,13 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
 
   function updateHandoffCount() {
     const selected = handoffNotes.filter((note) => selectedIds.has(note.id));
+    const evidenceHint = section.querySelector<HTMLElement>(
+      '.handoff-evidence-hint',
+    );
+    if (evidenceHint)
+      evidenceHint.hidden = !selected.some((note) =>
+        screenshotImages(note).some((image) => image.marks?.length),
+      );
     const count = section.querySelector('.handoff-count');
     if (count)
       count.textContent = `${plural(selected.length, 'change')} selected · ${plural(new Set(selected.map((note) => note.page.key)).size, 'page')}`;
@@ -421,6 +429,13 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
   function renderHandoff() {
     reset('Prepare handoff');
     body.append(element('p', undefined, 'handoff-count review-summary'));
+    body.append(
+      element(
+        'p',
+        'Choose ZIP to include arrows and images. Markdown keeps your callout text.',
+        'handoff-evidence-hint review-description',
+      ),
+    );
     body.append(
       element(
         'p',

@@ -68,6 +68,58 @@ function note(): Annotation {
 }
 
 describe('review decisions and handoffs', () => {
+  it('retains another tab’s latest image edits in reattachment history', async () => {
+    const original = note();
+    original.screenshot = {
+      status: 'available',
+      path: `screenshots/${original.id}.png`,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 10,
+      height: 10,
+      capturedAt: original.createdAt,
+      redactedRegions: 1,
+      note: 'Masked.',
+    };
+    await putAnnotation(original);
+    await patchScreenshot(original.id, {
+      capturePath: original.screenshot.path,
+      revision: 0,
+      edits: [
+        {
+          imagePath: original.screenshot.path,
+          marks: [
+            {
+              kind: 'callout',
+              at: { x: 0.5, y: 0.5 },
+              text: 'Retain my latest image edits.',
+            },
+          ],
+          renderedDataUrl: original.screenshot.dataUrl,
+        },
+      ],
+    });
+    await putAnnotation({
+      ...original,
+      screenshot: {
+        ...original.screenshot,
+        path: `screenshots/${original.id}-new.png`,
+      },
+      reattachments: [
+        {
+          at: '2026-09-14T12:00:00.000Z',
+          screenshot: original.screenshot,
+          page: original.page,
+          targets: original.targets,
+        },
+      ],
+    });
+    const stored = (await readLibrary()).annotations.find(
+      (value) => value.id === original.id,
+    )!;
+    expect(stored.reattachments[0].screenshot).toMatchObject({
+      marks: [{ text: 'Retain my latest image edits.' }],
+    });
+  });
   it('keeps original evidence and review decisions while exporting and restoring screenshot edits', () => {
     const original = note();
     original.screenshot = {
