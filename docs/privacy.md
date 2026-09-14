@@ -2,7 +2,7 @@
 
 ## Where data lives
 
-Annotations, page context, review sessions and instructions, review decisions and follow-ups, approved comments, original voice transcripts, and PNG screenshots live in the extension's IndexedDB database in the current browser profile. Nothing is sent to a Pointnote server. There is no telemetry or analytics. A small session-storage entry remembers which tabs had review open; it does not hold page content.
+Annotations, comparison roles, page context, review sessions and instructions, review decisions and follow-ups, approved comments, original voice transcripts, callout text, and PNG screenshots live in the extension's IndexedDB database in the current browser profile. Screenshot data includes original viewport images, target close-ups, and any marked copies. Nothing is sent to a Pointnote server. There is no telemetry or analytics. A small session-storage entry remembers which tabs had review open; it does not hold page content.
 
 Export is a local browser download. Pointnote does not contact an agent, upload an export, read source files, or edit code. Uninstalling the extension removes local storage; export anything you want to retain.
 
@@ -30,7 +30,9 @@ The approved user comment is retained verbatim, including whitespace. Pointnote 
 
 ## Screenshot handling
 
-Screenshots capture the visible tab, then resize to at most 1,600 pixels wide. The sidebar and markers are hidden during capture; target outlines are drawn onto the saved image afterward. Private-region masks are shown during capture and burned into the output image.
+Screenshots capture the visible tab. Private-region masks are shown during capture and burned into the full-resolution pixels before any crop or resize. The wider viewport image is limited to 1,600 pixels wide; target close-ups retain more detail, up to 2,400 pixels on their longest side. Both use the same masked source. The sidebar and markers are hidden during capture; target outlines are drawn onto the saved images afterward.
+
+The screenshot studio opens these saved images without capturing the page again. Drawing tools add arrows and numbered callouts to separate marked PNGs while retaining the originals. Callout text is preserved exactly as typed. The ZIP includes original and marked images; standalone Markdown contains callout text but does not include image pixels or visible arrows. No new permissions or external image services are used.
 
 Standard inputs, textareas, selects, editable regions, textbox/combobox roles, `data-pointnote-private` regions, iframe/object/embed content, custom elements, and open shadow hosts are masked. If the viewport, target geometry, or detected private-region geometry changes during capture, the screenshot is discarded and the note records an unavailable reason.
 
