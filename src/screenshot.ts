@@ -1,6 +1,7 @@
 import { PRIVATE_SELECTOR, bounds } from './context';
 import { rpc } from './rpc';
 import type { Screenshot, Bounds } from './types';
+import { captureCrops } from './screenshot-crop';
 function privateRegions(host: HTMLElement) {
   const sensitive = [...document.querySelectorAll(PRIVATE_SELECTOR)];
   for (const el of document.querySelectorAll('*'))
@@ -97,12 +98,34 @@ export async function captureScreenshot(
     const img = new Image();
     img.src = data;
     await img.decode();
+    // Mask at capture resolution before deriving close-ups or resizing the viewport.
+    const masked = document.createElement('canvas');
+    masked.width = img.width;
+    masked.height = img.height;
+    const source = masked.getContext('2d');
+    if (!source) throw new Error('Canvas is unavailable.');
+    source.drawImage(img, 0, 0);
+    source.fillStyle = '#dce1df';
+    for (const r of regions)
+      source.fillRect(
+        ((r.left - 3) * img.width) / viewport.width,
+        ((r.top - 3) * img.height) / viewport.height,
+        ((r.width + 6) * img.width) / viewport.width,
+        ((r.height + 6) * img.height) / viewport.height,
+      );
+    const crops = captureCrops(
+      masked,
+      outlines || targetRects,
+      viewport,
+      path,
+      elements.length > 0,
+    );
     const canvas = document.createElement('canvas');
     canvas.width = Math.min(img.width, 1600);
     canvas.height = Math.round((img.height * canvas.width) / img.width);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas is unavailable.');
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(masked, 0, 0, canvas.width, canvas.height);
     const scaleX = canvas.width / viewport.width,
       scaleY = canvas.height / viewport.height;
     // Burn in masks as well as displaying them during capture.
@@ -139,6 +162,7 @@ export async function captureScreenshot(
       width: canvas.width,
       height: canvas.height,
       redactedRegions: regions.length,
+      ...(crops.length ? { crops } : {}),
       note:
         (elements.length
           ? 'Visible viewport; orange outlines label targets in selection order.'

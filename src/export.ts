@@ -33,7 +33,26 @@ function targetMarkdown(targets: Target[]) {
 function screenshotMarkdown(screenshot: Screenshot) {
   return screenshot.status === 'unavailable'
     ? 'Screenshot unavailable: ' + screenshot.reason
-    : '![Target in context](' + screenshot.path + ')\n\n' + screenshot.note;
+    : [
+        '![Target in context](' + screenshot.path + ')',
+        screenshot.note,
+        ...(screenshot.crops || []).flatMap((crop) => {
+          const label =
+            crop.targetIndex === undefined
+              ? 'Selected area close-up'
+              : `Target ${crop.targetIndex + 1} close-up`;
+          return crop.status === 'available'
+            ? [
+                `![${label}](${crop.path})`,
+                ...(crop.clipped
+                  ? [
+                      'This close-up includes only the visible portion of the target.',
+                    ]
+                  : []),
+              ]
+            : [`${label} unavailable: ${crop.reason}`];
+        }),
+      ].join('\n\n');
 }
 function handoffMarkdown(handoff?: HandoffContext): string[] {
   return handoff
@@ -200,7 +219,30 @@ export function createBundle(
       };
     const raw = atob(dataUrl.split(',')[1]);
     files[s.path] = Uint8Array.from(raw, (c) => c.charCodeAt(0));
-    return metadata;
+    return {
+      ...metadata,
+      ...(s.crops
+        ? {
+            crops: s.crops.map((crop) => {
+              if (crop.status === 'unavailable') return crop;
+              const { dataUrl, ...detail } = crop;
+              if (!dataUrl)
+                return {
+                  status: 'unavailable' as const,
+                  ...(crop.targetIndex === undefined
+                    ? {}
+                    : { targetIndex: crop.targetIndex }),
+                  reason: 'Stored close-up data is missing.',
+                };
+              files[crop.path] = Uint8Array.from(
+                atob(dataUrl.split(',')[1]),
+                (c) => c.charCodeAt(0),
+              );
+              return detail;
+            }),
+          }
+        : {}),
+    };
   };
   const exported = annotations.map((a) => ({
     ...a,

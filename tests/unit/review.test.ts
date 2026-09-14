@@ -66,6 +66,49 @@ function note(): Annotation {
 }
 
 describe('review decisions and handoffs', () => {
+  it('round-trips close-ups and exports separate image files without inline image data', () => {
+    const original = note();
+    const image = {
+      path: `screenshots/${original.id}.png`,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 10,
+      height: 10,
+    };
+    original.screenshot = {
+      ...image,
+      status: 'available',
+      capturedAt: original.createdAt,
+      redactedRegions: 1,
+      note: 'Masked.',
+      crops: [
+        {
+          ...image,
+          path: `screenshots/${original.id}-closeup-1.png`,
+          status: 'available',
+          targetIndex: 0,
+          width: 2000,
+          bounds: original.targets[0].bounds,
+          clipped: true,
+        },
+      ],
+    };
+    const restored = parseBackup(
+      createBackup({ annotations: [original], sessions: [] }),
+    ).annotations[0];
+    expect(restored.screenshot).toEqual(original.screenshot);
+    const files = unzipSync(createBundle([restored]));
+    expect(files[`screenshots/${original.id}-closeup-1.png`]).toBeTruthy();
+    expect(strFromU8(files['feedback.json'])).not.toContain('data:image');
+    expect(strFromU8(files['feedback.md'])).toContain(
+      'only the visible portion',
+    );
+    const bad = JSON.parse(
+      createBackup({ annotations: [original], sessions: [] }),
+    );
+    bad.annotations[0].screenshot.crops[0].dataUrl =
+      'https://example.test/tracker';
+    expect(() => parseBackup(JSON.stringify(bad))).toThrow();
+  });
   it('preserves comparison direction, dimension and exact comments through every handoff and backup', () => {
     const original = note();
     original.targets.push({

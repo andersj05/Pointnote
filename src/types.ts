@@ -74,17 +74,28 @@ export interface PageContext {
     scrollY: number;
   };
 }
-export type Screenshot =
-  | {
+export interface ScreenshotImage {
+  path: string;
+  dataUrl?: string;
+  width: number;
+  height: number;
+}
+export type ScreenshotCrop = { targetIndex?: number } & (
+  | (ScreenshotImage & {
       status: 'available';
-      path: string;
-      dataUrl?: string;
+      bounds: Bounds;
+      clipped: boolean;
+    })
+  | { status: 'unavailable'; reason: string }
+);
+export type Screenshot =
+  | (ScreenshotImage & {
+      status: 'available';
       capturedAt: string;
-      width: number;
-      height: number;
       redactedRegions: number;
       note: string;
-    }
+      crops?: ScreenshotCrop[];
+    })
   | { status: 'unavailable'; reason: string };
 export interface Annotation {
   id: string;

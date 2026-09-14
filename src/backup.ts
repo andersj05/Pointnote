@@ -8,6 +8,8 @@ import type {
   ReviewLibrary,
   ReviewSession,
   Screenshot,
+  ScreenshotImage,
+  ScreenshotCrop,
   Target,
 } from './types';
 
@@ -84,23 +86,59 @@ function page(value: unknown): PageContext {
     },
   };
 }
-function screenshot(value: unknown): Screenshot {
-  const s = object(value);
-  if (s.status === 'unavailable')
-    return { status: 'unavailable', reason: text(s.reason, 5000) };
-  if (s.status !== 'available') return invalid();
+function image(s: Record<string, unknown>, maxWidth: number): ScreenshotImage {
   const path = text(s.path, 250);
   if (!/^screenshots\/[\w-]+\.png$/.test(path)) return invalid();
   const dataUrl = text(s.dataUrl, 16000000);
   if (!/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(dataUrl))
     return invalid();
   return {
-    status: 'available',
     path,
     dataUrl,
-    capturedAt: date(s.capturedAt),
-    width: number(s.width, 1, 1600),
+    width: number(s.width, 1, maxWidth),
     height: number(s.height, 1, 50000),
+  };
+}
+function screenshot(value: unknown): Screenshot {
+  const s = object(value);
+  if (s.status === 'unavailable')
+    return { status: 'unavailable', reason: text(s.reason, 5000) };
+  if (s.status !== 'available') return invalid();
+  const crops: ScreenshotCrop[] | undefined =
+    s.crops === undefined
+      ? undefined
+      : list(s.crops, 12).map((value) => {
+          const c = object(value);
+          const identity =
+            c.targetIndex === undefined
+              ? {}
+              : { targetIndex: number(c.targetIndex, 0, 11) };
+          if (
+            identity.targetIndex !== undefined &&
+            !Number.isInteger(identity.targetIndex)
+          )
+            return invalid();
+          if (c.status === 'unavailable')
+            return {
+              ...identity,
+              status: 'unavailable',
+              reason: text(c.reason, 5000),
+            };
+          if (c.status !== 'available') return invalid();
+          return {
+            ...image(c, 2400),
+            ...identity,
+            status: 'available',
+            bounds: bounds(c.bounds),
+            clipped: bool(c.clipped),
+            height: number(c.height, 1, 2400),
+          };
+        });
+  return {
+    ...image(s, 1600),
+    status: 'available',
+    capturedAt: date(s.capturedAt),
+    ...(crops ? { crops } : {}),
     redactedRegions: number(s.redactedRegions, 0),
     note: text(s.note, 5000),
   };
@@ -155,6 +193,8 @@ function annotation(value: unknown): Annotation {
   )
     return invalid();
   const targets = list(a.targets, 12).map(target);
+  if (a.comparison !== undefined && a.selectionKind !== 'multiple')
+    return invalid();
   if (!targets.length && !['page', 'region'].includes(String(a.selectionKind)))
     return invalid();
   const originalComment = text(a.originalComment, 20000);
