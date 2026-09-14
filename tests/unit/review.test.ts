@@ -14,6 +14,8 @@ import {
 import { createBackup, parseBackup } from '../../src/backup';
 import { createMarkdown, createBundle } from '../../src/export';
 import { strFromU8, unzipSync } from 'fflate';
+import { applyScreenshotPatch, validateMarks } from '../../src/screenshot-edit';
+import { patchScreenshot } from '../../src/storage';
 
 function note(): Annotation {
   return {
@@ -66,6 +68,122 @@ function note(): Annotation {
 }
 
 describe('review decisions and handoffs', () => {
+  it('keeps original evidence and review decisions while exporting and restoring screenshot edits', () => {
+    const original = note();
+    original.screenshot = {
+      status: 'available',
+      path: `screenshots/${original.id}.png`,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 10,
+      height: 10,
+      capturedAt: original.createdAt,
+      redactedRegions: 1,
+      note: 'Masked.',
+    };
+    const comment = '  Callout words.\n```literal  ';
+    const updated = applyScreenshotPatch(original, {
+      capturePath:
+        original.screenshot.status === 'available'
+          ? original.screenshot.path
+          : '',
+      revision: 0,
+      edits: [
+        {
+          imagePath: original.screenshot.path,
+          marks: [{ kind: 'callout', at: { x: 0.5, y: 0.5 }, text: comment }],
+          renderedDataUrl: 'data:image/png;base64,iVBORw0KGgoAAA==',
+        },
+      ],
+    });
+    expect(updated.originalComment).toBe(original.originalComment);
+    expect(
+      updated.screenshot.status === 'available' && updated.screenshot.dataUrl,
+    ).toBe(original.screenshot.dataUrl);
+    const restored = parseBackup(
+      createBackup({ annotations: [updated], sessions: [] }),
+    ).annotations[0];
+    expect(restored.screenshot).toEqual(updated.screenshot);
+    const files = unzipSync(createBundle([restored]));
+    expect(files[original.screenshot.path]).toBeTruthy();
+    expect(
+      files[original.screenshot.path.replace('.png', '-marked.png')],
+    ).toBeTruthy();
+    expect(strFromU8(files['feedback.json'])).not.toContain('data:image');
+    expect(createMarkdown([updated])).toContain(comment);
+    expect(strFromU8(files['feedback.md'])).toContain(comment);
+    expect(() =>
+      applyScreenshotPatch(updated, {
+        capturePath:
+          original.screenshot.status === 'available'
+            ? original.screenshot.path
+            : '',
+        revision: 0,
+        edits: [],
+      }),
+    ).toThrow('another tab');
+    expect(() =>
+      applyScreenshotPatch(updated, {
+        capturePath: 'screenshots/old.png',
+        revision: 1,
+        edits: [],
+      }),
+    ).toThrow('another tab');
+    const cleared = applyScreenshotPatch(updated, {
+      capturePath:
+        original.screenshot.status === 'available'
+          ? original.screenshot.path
+          : '',
+      revision: 1,
+      edits: [{ imagePath: original.screenshot.path, marks: [] }],
+    });
+    expect(
+      cleared.screenshot.status === 'available' && cleared.screenshot.marked,
+    ).toBeUndefined();
+  });
+
+  it('rejects invalid mark geometry, remote markup and edits after deletion', async () => {
+    expect(() =>
+      validateMarks([
+        { kind: 'arrow', from: { x: 0, y: 0 }, to: { x: Infinity, y: 1 } },
+      ]),
+    ).toThrow();
+    expect(() =>
+      validateMarks([{ kind: 'callout', at: { x: -1, y: 0 }, text: 'test' }]),
+    ).toThrow();
+    const original = note();
+    original.screenshot = {
+      status: 'available',
+      path: `screenshots/${original.id}.png`,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 10,
+      height: 10,
+      capturedAt: original.createdAt,
+      redactedRegions: 1,
+      note: 'Masked.',
+    };
+    const patch = {
+      capturePath:
+        original.screenshot.status === 'available'
+          ? original.screenshot.path
+          : '',
+      revision: 0,
+      edits: [
+        {
+          imagePath: original.screenshot.path,
+          marks: [{ kind: 'callout' as const, at: { x: 0, y: 0 }, text: '' }],
+          renderedDataUrl: 'https://example.test/tracker.png',
+        },
+      ],
+    };
+    expect(() => applyScreenshotPatch(original, patch)).toThrow(
+      'invalid or too large',
+    );
+    await putAnnotation(original);
+    await deleteAnnotation(original.id, original.page.key);
+    await expect(patchScreenshot(original.id, patch)).rejects.toThrow(
+      'deleted',
+    );
+  });
   it('round-trips close-ups and exports separate image files without inline image data', () => {
     const original = note();
     const image = {

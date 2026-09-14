@@ -79,6 +79,24 @@ export interface ScreenshotImage {
   dataUrl?: string;
   width: number;
   height: number;
+  marks?: ScreenshotMark[];
+  marked?: { path: string; dataUrl?: string };
+}
+export interface ImagePoint {
+  x: number;
+  y: number;
+}
+export type ScreenshotMark =
+  | { kind: 'arrow'; from: ImagePoint; to: ImagePoint }
+  | { kind: 'callout'; at: ImagePoint; text: string };
+export interface ScreenshotPatch {
+  capturePath: string;
+  revision: number;
+  edits: {
+    imagePath: string;
+    marks: ScreenshotMark[];
+    renderedDataUrl?: string;
+  }[];
 }
 export type ScreenshotCrop = { targetIndex?: number } & (
   | (ScreenshotImage & {
@@ -95,6 +113,7 @@ export type Screenshot =
       redactedRegions: number;
       note: string;
       crops?: ScreenshotCrop[];
+      revision?: number;
     })
   | { status: 'unavailable'; reason: string };
 export interface Annotation {
@@ -132,6 +151,7 @@ export type Request =
   | { type: 'LIBRARY' }
   | { type: 'PUT_SESSION'; session: ReviewSession }
   | { type: 'PATCH_REVIEW'; id: string; patch: ReviewPatch }
+  | { type: 'PATCH_SCREENSHOT'; id: string; patch: ScreenshotPatch }
   | {
       type: 'PATCH_ATTACHMENT';
       id: string;

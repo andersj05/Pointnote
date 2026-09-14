@@ -1,6 +1,7 @@
 import { safeUrl, sanitizedClone } from './context';
 import { applyReviewPatch, validateSession } from './review';
 import { validateComparison } from './comparison';
+import { validateMarks, isLocalPng } from './screenshot-edit';
 import type {
   Annotation,
   Bounds,
@@ -97,6 +98,20 @@ function image(s: Record<string, unknown>, maxWidth: number): ScreenshotImage {
     dataUrl,
     width: number(s.width, 1, maxWidth),
     height: number(s.height, 1, 50000),
+    ...(s.marks !== undefined ? { marks: validateMarks(s.marks) } : {}),
+    ...(s.marked !== undefined
+      ? {
+          marked: (() => {
+            const marked = object(s.marked);
+            if (
+              marked.path !== path.replace(/\.png$/, '-marked.png') ||
+              !isLocalPng(marked.dataUrl)
+            )
+              return invalid();
+            return { path: String(marked.path), dataUrl: marked.dataUrl };
+          })(),
+        }
+      : {}),
   };
 }
 function screenshot(value: unknown): Screenshot {
@@ -139,6 +154,9 @@ function screenshot(value: unknown): Screenshot {
     status: 'available',
     capturedAt: date(s.capturedAt),
     ...(crops ? { crops } : {}),
+    ...(s.revision !== undefined
+      ? { revision: number(s.revision, 0, Number.MAX_SAFE_INTEGER) }
+      : {}),
     redactedRegions: number(s.redactedRegions, 0),
     note: text(s.note, 5000),
   };

@@ -3,7 +3,9 @@ import type {
   ReviewLibrary,
   ReviewPatch,
   ReviewSession,
+  ScreenshotPatch,
 } from './types';
+import { applyScreenshotPatch } from './screenshot-edit';
 import { applyReviewPatch, validateSession } from './review';
 let database: Promise<IDBDatabase> | undefined;
 export function db(): Promise<IDBDatabase> {
@@ -148,6 +150,12 @@ export function patchReview(
   patch: ReviewPatch,
 ): Promise<Annotation> {
   return updateAnnotation(id, (note) => applyReviewPatch(note, patch));
+}
+export function patchScreenshot(
+  id: string,
+  patch: ScreenshotPatch,
+): Promise<Annotation> {
+  return updateAnnotation(id, (note) => applyScreenshotPatch(note, patch));
 }
 
 export function patchAttachment(

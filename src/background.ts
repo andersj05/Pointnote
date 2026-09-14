@@ -6,6 +6,7 @@ import {
   readLibrary,
   putSession,
   patchReview,
+  patchScreenshot,
   patchAttachment,
   restoreLibrary,
 } from './storage';
@@ -83,6 +84,10 @@ chrome.runtime.onMessage.addListener(
           return null;
         case 'PATCH_REVIEW':
           return patchReview(message.id, message.patch);
+        case 'PATCH_SCREENSHOT':
+          if (JSON.stringify(message.patch).length > 16000000)
+            throw new Error('Screenshot edits are too large.');
+          return patchScreenshot(message.id, message.patch);
         case 'PATCH_ATTACHMENT':
           if (
             !message.attachment ||
@@ -159,6 +164,7 @@ chrome.runtime.onMessage.addListener(
       message.type === 'DELETE_PAGE' ||
       message.type === 'PUT_SESSION' ||
       message.type === 'PATCH_REVIEW' ||
+      message.type === 'PATCH_SCREENSHOT' ||
       message.type === 'PATCH_ATTACHMENT' ||
       message.type === 'RESTORE'
         ? (writeQueue = writeQueue.then(handle, handle))
