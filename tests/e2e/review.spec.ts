@@ -516,7 +516,7 @@ test('three report comments persist across reload and browser restart, export, a
     annotations: Annotation[];
     schemaVersion: string;
   };
-  expect(data.schemaVersion).toBe('1.1.0');
+  expect(data.schemaVersion).toBe('1.2.0');
   expect(data.annotations).toHaveLength(3);
   expect(data.annotations.map((a) => a.targets[0].locator.id)).toEqual([
     'evidence-claim',

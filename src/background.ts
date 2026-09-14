@@ -12,6 +12,7 @@ import {
 import { BACKUP_LIMIT, validateLibrary } from './backup';
 import type { Request, Response } from './types';
 import { mountVoiceBackground } from './voice-background';
+import { validateComparison } from './comparison';
 mountVoiceBackground();
 async function activate(tab: chrome.tabs.Tab) {
   if (!tab.id) return;
@@ -106,6 +107,11 @@ chrome.runtime.onMessage.addListener(
             JSON.stringify(a).length > 16000000
           )
             throw new Error('Annotation is invalid or too large.');
+          if (a.comparison) {
+            validateComparison(a.comparison, a.targets.length);
+            if (a.selectionKind !== 'multiple')
+              throw new Error('Comparisons require multiple selection.');
+          }
           await putAnnotation(a);
           return null;
         }

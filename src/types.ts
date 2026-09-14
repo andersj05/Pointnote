@@ -55,6 +55,13 @@ export interface Target {
     end: number;
   };
 }
+export type ComparisonDimension =
+  'overall' | 'spacing' | 'typography' | 'color' | 'alignment';
+export interface Comparison {
+  changeTarget: number;
+  referenceTarget: number;
+  dimension: ComparisonDimension;
+}
 export interface PageContext {
   key: string;
   url: string;
@@ -88,6 +95,7 @@ export interface Annotation {
   selectionKind: 'element' | 'multiple' | 'text-range' | 'page' | 'region';
   region?: Bounds;
   targets: Target[];
+  comparison?: Comparison;
   screenshot: Screenshot;
   status: Status;
   resolution: 'open' | 'addressed';
@@ -103,6 +111,7 @@ export interface Annotation {
   reattachments: {
     at: string;
     targets: Target[];
+    comparison?: Comparison;
     screenshot: Screenshot;
     page: PageContext;
   }[];

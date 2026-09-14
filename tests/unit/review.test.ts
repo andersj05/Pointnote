@@ -66,6 +66,53 @@ function note(): Annotation {
 }
 
 describe('review decisions and handoffs', () => {
+  it('preserves comparison direction, dimension and exact comments through every handoff and backup', () => {
+    const original = note();
+    original.targets.push({
+      ...original.targets[0],
+      locator: { ...original.targets[0].locator, id: 'reference' },
+    });
+    original.selectionKind = 'multiple';
+    original.comparison = {
+      changeTarget: 1,
+      referenceTarget: 0,
+      dimension: 'spacing',
+    };
+    const restored = parseBackup(
+      createBackup({ annotations: [original], sessions: [] }),
+    ).annotations[0];
+    expect(restored.comparison).toEqual(original.comparison);
+    const files = unzipSync(createBundle([restored]));
+    for (const markdown of [
+      createMarkdown([restored]),
+      strFromU8(files['feedback.md']),
+    ]) {
+      expect(markdown).toContain('Change this: Target 2.');
+      expect(markdown).toContain(
+        'Use as reference: Target 1. Keep the reference unchanged.',
+      );
+      expect(markdown).toContain('Match: Spacing.');
+      expect(markdown).toContain(original.originalComment);
+    }
+    expect(
+      JSON.parse(strFromU8(files['feedback.json'])).annotations[0].comparison,
+    ).toEqual(original.comparison);
+    const broken = JSON.parse(
+      createBackup({ annotations: [original], sessions: [] }),
+    );
+    broken.annotations[0].comparison.referenceTarget = 1;
+    expect(() => parseBackup(JSON.stringify(broken))).toThrow(
+      'two distinct targets',
+    );
+  });
+
+  it('still restores legacy backups without adding a comparison', () => {
+    const raw = createBackup({ annotations: [note()], sessions: [] }).replace(
+      '"schemaVersion":"1.1.0"',
+      '"schemaVersion":"1.0.0"',
+    );
+    expect(parseBackup(raw).annotations[0].comparison).toBeUndefined();
+  });
   it('round-trips backups, strips unknown fields and rejects remote images and future formats', () => {
     const original = note();
     original.screenshot = {
@@ -99,7 +146,7 @@ describe('review decisions and handoffs', () => {
     );
     expect(() =>
       parseBackup(
-        raw.replace('"schemaVersion":"1.0.0"', '"schemaVersion":"99.0.0"'),
+        raw.replace('"schemaVersion":"1.1.0"', '"schemaVersion":"99.0.0"'),
       ),
     ).toThrow('supported Pointnote backup');
   });
