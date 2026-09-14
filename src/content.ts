@@ -9,6 +9,7 @@ import { mountVoiceShortcut } from './voice-shortcut';
 import { readTextSelection, rangeForQuote } from './range';
 import { icon } from './icons';
 import { mountPanel } from './panel';
+import { mountScreenshotStudio } from './screenshot-studio';
 import { comparisonDimensions, comparisonSummary } from './comparison';
 import type { ComparisonDimension } from './types';
 import { readPreferences, type Preferences } from './preferences';
@@ -108,12 +109,15 @@ async function mount() {
     highlights = $('.highlights'),
     markers = $('.markers');
   const feedback = $<HTMLTextAreaElement>('#feedback');
+  $('.target').append($('.comparison-picker'));
   let opened = true,
     reviewing = true,
     busy = false;
   let transitioning = false;
   let reviews: ReturnType<typeof mountReviewWorkspace> | undefined = undefined;
   let reviewOpen = false;
+  let screenshotOpen = false;
+  let studio: ReturnType<typeof mountScreenshotStudio> | undefined;
   let clearPageKey: string | undefined;
   let settingsOpen = false,
     minimized = false;
@@ -189,6 +193,7 @@ async function mount() {
         !reattaching &&
         !settingsOpen &&
         !reviewOpen &&
+        !screenshotOpen &&
         !minimized &&
         hasSelection()
       );
@@ -253,7 +258,8 @@ async function mount() {
     }[mode];
   }
   function updateControls() {
-    const locked = busy || transitioning || Boolean(reviews?.isBusy);
+    const locked =
+      busy || transitioning || screenshotOpen || Boolean(reviews?.isBusy);
     $<HTMLButtonElement>('[data-action=clear-page]').disabled =
       locked || voice.recording || !annotations.length;
     $<HTMLButtonElement>('[data-action=confirm-clear-page]').disabled = locked;
@@ -348,6 +354,8 @@ async function mount() {
   }
   function renderSelection() {
     const comparing = selectionMode === 'compare';
+    $('.target').classList.toggle('comparison-selection', comparing);
+    $('.target-top').hidden = comparing;
     $('.comparison-picker').hidden = !comparing;
     $('.target .excerpt').hidden = comparing;
     $('.comparison-hint').textContent = !selected.length
@@ -372,8 +380,8 @@ async function mount() {
     }
     $<HTMLSelectElement>('[aria-label="What to match"]').value =
       comparisonDimension;
-    $('.target').hidden = !hasSelection();
-    $('.selection-prompt').hidden = hasSelection();
+    $('.target').hidden = !hasSelection() && !comparing;
+    $('.selection-prompt').hidden = hasSelection() || comparing;
     $('[data-action=parent]').hidden = !selected.length || comparing;
     if (selectionMode === 'page') {
       $('.target-name').textContent = 'Whole page';
@@ -398,7 +406,7 @@ async function mount() {
   function draw() {
     highlights.replaceChildren();
     markers.replaceChildren();
-    if (!opened || minimized || settingsOpen) return;
+    if (!opened || minimized || settingsOpen || screenshotOpen) return;
     const addOutline = (el: Element, hover: boolean, rect?: Bounds) => {
       if (!el.isConnected) return;
       const r = rect || bounds(el),
@@ -665,6 +673,28 @@ async function mount() {
       );
       actions.append(details);
       card.append(head, actions);
+      if (a.screenshot.status === 'available' && a.screenshot.dataUrl) {
+        const preview = document.createElement('button');
+        preview.className = 'evidence-preview';
+        preview.setAttribute('aria-label', `View screenshot for note ${i + 1}`);
+        const thumb = document.createElement('img');
+        thumb.src = a.screenshot.marked?.dataUrl || a.screenshot.dataUrl;
+        thumb.alt = '';
+        const text = document.createElement('span');
+        const title = document.createElement('strong');
+        title.textContent = 'View screenshot';
+        const subtitle = document.createElement('small');
+        const closeups =
+          a.screenshot.crops?.filter((crop) => crop.status === 'available')
+            .length || 0;
+        subtitle.textContent = `${closeups ? `${closeups} close-up${closeups === 1 ? '' : 's'} · ` : ''}Zoom & annotate`;
+        text.append(title, subtitle);
+        const expand = document.createElement('span');
+        expand.innerHTML = icon('expand');
+        preview.append(thumb, text, expand);
+        preview.onclick = () => openScreenshot(a);
+        card.insertBefore(preview, actions);
+      }
       if (a.comparison) {
         const relation = document.createElement('div');
         relation.className = 'comparison-summary';
@@ -788,7 +818,14 @@ async function mount() {
     draw();
   }
   function selectionActive() {
-    return opened && reviewing && !settingsOpen && !reviewOpen && !minimized;
+    return (
+      opened &&
+      reviewing &&
+      !settingsOpen &&
+      !reviewOpen &&
+      !screenshotOpen &&
+      !minimized
+    );
   }
   function showSettings(value: boolean) {
     closeClearPage();
@@ -821,6 +858,10 @@ async function mount() {
     button.focus();
   }
   function setOpened(value: boolean) {
+    if (screenshotOpen) {
+      studio?.close();
+      return;
+    }
     closeClearPage();
     closeExport();
     if (!value) voice.stop();
@@ -851,6 +892,7 @@ async function mount() {
           comparisonDimension = a.comparison.dimension;
           comparisonSlot = null;
         } else if (selectionMode === 'compare') setSelectionMode('element');
+        setReviewing(reviewing);
         if (!a.targets.length) {
           selected = [];
           setNotice(
@@ -1136,6 +1178,7 @@ async function mount() {
     'keydown',
     (event) => {
       if (!opened) return;
+      if (screenshotOpen) return;
       if (event.key === 'Escape') {
         if (busy || transitioning) return;
         if (!$('.clear-page-confirmation').hidden) closeClearPage(true);
@@ -1494,6 +1537,20 @@ async function mount() {
         await reviews?.open(view);
       }),
     );
+  function openScreenshot(note: Annotation) {
+    act(() =>
+      changeSelection(async () => {
+        const latest = await rpc<Annotation[]>({
+          type: 'LIST',
+          pageKey: note.page.key,
+        });
+        const current = latest.find((value) => value.id === note.id);
+        if (!current)
+          throw new Error('This note was deleted. Refresh the page notes.');
+        await studio?.open(current);
+      }),
+    );
+  }
   $('[data-action=export]').onclick = () => openReview('handoff');
   $('[data-action=sessions]').onclick = () => openReview('sessions');
   $('[data-action=check-changes]').onclick = () => openReview('check');
@@ -1592,6 +1649,29 @@ async function mount() {
     reload: load,
     locate: revisit,
     notice: setNotice,
+  });
+  studio = mountScreenshotStudio(root, {
+    onView: (value) => {
+      screenshotOpen = value;
+      panel.inert = value;
+      voice.stop();
+      hovered = null;
+      setReviewing(reviewing);
+    },
+    onSaved: async (note) => {
+      annotations = annotations.map((value) =>
+        value.id === note.id ? note : value,
+      );
+      renderNotes();
+      await reviews?.refreshSummary();
+      setNotice('Screenshot edits saved. Original capture kept.', true);
+    },
+    onClose: (id) => {
+      const button = root.querySelector<HTMLElement>(
+        `[data-note-id="${id}"] .evidence-preview`,
+      );
+      (button || $('[data-action=export]')).focus({ preventScroll: true });
+    },
   });
   try {
     await load();
