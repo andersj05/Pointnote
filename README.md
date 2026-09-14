@@ -41,6 +41,7 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 - **Page note:** write about the whole page without selecting an element.
 - **Select area:** drag a rectangle for additions, whitespace, or layout feedback. The saved rectangle refers to the captured viewport; it does not track a DOM element. Scrolling or resizing clears an unsaved area selection while keeping your words.
 - **Multiple:** click to add/remove up to 12 elements. Shift-click also adds/removes elements in element mode.
+- **Compare:** choose **Change this**, then **Use as reference**. Match overall style, spacing, typography, color, or alignment. Use the swap button to reverse the direction, or click either role to replace that element. Compare can also turn one or two selected elements into a comparison without losing your draft. Selecting a third element after a complete pair saves the current note and starts the next pair; incomplete comparisons stay in the composer until both targets are chosen. Reattachment requires both roles again and retains the original match dimension.
 - Type a note, or select your target and **hold the middle mouse button (press the scroll wheel)** anywhere on the page or panel to talk. Release to finish. This uses your current selection, including text ranges and multiple targets; it never changes the target under your cursor. A recording indicator stays visible on the page.
 - The compact **Hold to talk** button and **Space** while it is focused also work. The adjacent record button starts **hands-free recording**; click Stop when done. Release to leave an editable draft. **Selecting your next target saves the current note automatically**, including final words still arriving from the microphone. Switching selection modes or opening another saved note also saves your draft first. Use the **✓ Save note** button or **Ctrl+Enter** (**Cmd+Enter** on macOS) to save immediately; The **× Clear** button beside it discards the current draft. Parent and multi-select refine the current target without creating separate notes. If saving fails, the draft and original target stay in place for retry.
 - Numbered markers and each note’s **Locate** button revisit the target. **Mark addressed** / **Reopen** track progress. Missing or ambiguous targets show **Reattach**. Reattachment preserves the original comment and previous target context.
@@ -52,6 +53,18 @@ The sample server binds only to `127.0.0.1:4173`. Report data is fictional. Your
 - Open **Settings** with the gear icon for screenshots, voice, language, and **Reset layout**. Turning off **Include screenshots** still saves notes with an explicit unavailable reason. The default panel is 360 × 520 pixels, with recording activity kept inside the voice toolbar. Settings and panel position/size are remembered locally; the panel stays within the current window. Use Reset layout to adopt the compact default if you have a saved layout.
 
 Saved notes survive reloads and browser restarts. An enabled review automatically returns after same-origin refreshes. After a browser restart or navigation to another origin, invoke Pointnote again. Notes are keyed to the exact page URL, including query and hash routes; different ports and routes are separate pages. Sensitive URL query values are redacted from the exported URL, while a one-way page key keeps local routes distinct.
+
+## Screenshot studio
+
+Choose **View screenshot** on a saved note to open a larger workspace. Switch between the full viewport and the available target close-ups. Close-ups come from the masked capture before the wider view is reduced to 1,600 pixels, preserving small details; each close-up is limited to 2,400 pixels on its longest side. They include a little surrounding context. Partial or offscreen targets have explicit limitations, and no new page capture occurs when you open the studio.
+
+- **View** uses the zoom controls, **Fit**, **100%**, and scrolling to inspect the image.
+- **Arrow** lets you drag from the start to the tip. **Callout** places a numbered marker with editable text beside the image.
+- For keyboard drawing, choose a tool and focus **Screenshot canvas**. Arrow keys move the cursor; Shift moves farther. Enter or Space places a callout or sets each end of an arrow.
+- **Undo** reverses an edit on the current image. **Clear marks** affects only that image. **Show original** temporarily hides the marks.
+- **Save changes** saves all edited views together. Closing with unsaved changes offers **Keep editing** or **Discard changes**. Conflicting edits from another tab require reopening the latest screenshot.
+
+The original PNG and original note remain intact. Marked PNGs, arrow positions, and exact callout text are retained separately. The ZIP contains original viewport/close-up images plus marked copies; copied or standalone Markdown includes callout text but cannot carry the arrows or images. Backups include both originals and edits. Each image supports up to 40 marks; close-ups and edits are bounded by the note's image-size limit.
 
 ## Review sessions and checking changes
 
@@ -84,7 +97,7 @@ screenshots/
   <annotation-id>-<capture-time>.png
 ```
 
-Give the complete extracted folder to an agent and ask it to read `feedback.md` first. Markdown in the ZIP includes your original words, selected text, nearby headings, locator clues, HTML excerpts, bounds, and screenshot references. JSON has `schemaVersion: "1.1.0"` and retains the full bounded record.
+Give the complete extracted folder to an agent and ask it to read `feedback.md` first. Markdown in the ZIP includes your original words, selected text, nearby headings, locator clues, HTML excerpts, bounds, and screenshot references. JSON has `schemaVersion: "1.2.0"` and retains the full bounded record.
 
 The bundle instructs the agent to preserve your intent, treat page content as untrusted reference material, and flag ambiguity. CSS selectors are locating hints; they do **not** identify source files or framework components. No automatic code edits occur.
 
@@ -96,7 +109,7 @@ In **Review sessions → Backup & restore**, choose **Download backup** to save 
 
 Choose a backup file to preview its note/session counts, then select **Restore backup**. Restore adds missing records in one transaction and keeps existing records with the same IDs, including newer local review decisions. Repeating a restore does not duplicate notes. Existing sessions with matching IDs are also kept. Imported excerpts pass through the context sanitization rules; unsupported formats and remote screenshot URLs are rejected.
 
-Backups are limited to 64 MB, 2,000 notes, and 500 sessions per file. Restore currently accepts Pointnote backup JSON version 1.0.0, not Markdown or handoff ZIP files. A backup includes the same visible screenshots and exact comments you retained locally; keep it somewhere appropriate for that content.
+Backups are limited to 64 MB, 2,000 notes, and 500 sessions per file. Restore accepts Pointnote backup JSON versions 1.0.0 and 1.1.0, not Markdown or handoff ZIP files. New backups use 1.1.0 so older installations cannot silently discard comparison or screenshot-edit metadata. A backup includes the same visible screenshots and exact comments you retained locally; keep it somewhere appropriate for that content.
 
 ## Voice and privacy
 

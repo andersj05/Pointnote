@@ -55,6 +55,13 @@ export interface Target {
     end: number;
   };
 }
+export type ComparisonDimension =
+  'overall' | 'spacing' | 'typography' | 'color' | 'alignment';
+export interface Comparison {
+  changeTarget: number;
+  referenceTarget: number;
+  dimension: ComparisonDimension;
+}
 export interface PageContext {
   key: string;
   url: string;
@@ -67,17 +74,47 @@ export interface PageContext {
     scrollY: number;
   };
 }
-export type Screenshot =
-  | {
+export interface ScreenshotImage {
+  path: string;
+  dataUrl?: string;
+  width: number;
+  height: number;
+  marks?: ScreenshotMark[];
+  marked?: { path: string; dataUrl?: string };
+}
+export interface ImagePoint {
+  x: number;
+  y: number;
+}
+export type ScreenshotMark =
+  | { kind: 'arrow'; from: ImagePoint; to: ImagePoint }
+  | { kind: 'callout'; at: ImagePoint; text: string };
+export interface ScreenshotPatch {
+  capturePath: string;
+  revision: number;
+  edits: {
+    imagePath: string;
+    marks: ScreenshotMark[];
+    renderedDataUrl?: string;
+  }[];
+}
+export type ScreenshotCrop = { targetIndex?: number } & (
+  | (ScreenshotImage & {
       status: 'available';
-      path: string;
-      dataUrl?: string;
+      bounds: Bounds;
+      clipped: boolean;
+    })
+  | { status: 'unavailable'; reason: string }
+);
+export type Screenshot =
+  | (ScreenshotImage & {
+      status: 'available';
       capturedAt: string;
-      width: number;
-      height: number;
       redactedRegions: number;
       note: string;
-    }
+      crops?: ScreenshotCrop[];
+      revision?: number;
+    })
   | { status: 'unavailable'; reason: string };
 export interface Annotation {
   id: string;
@@ -88,6 +125,7 @@ export interface Annotation {
   selectionKind: 'element' | 'multiple' | 'text-range' | 'page' | 'region';
   region?: Bounds;
   targets: Target[];
+  comparison?: Comparison;
   screenshot: Screenshot;
   status: Status;
   resolution: 'open' | 'addressed';
@@ -103,6 +141,7 @@ export interface Annotation {
   reattachments: {
     at: string;
     targets: Target[];
+    comparison?: Comparison;
     screenshot: Screenshot;
     page: PageContext;
   }[];
@@ -112,6 +151,7 @@ export type Request =
   | { type: 'LIBRARY' }
   | { type: 'PUT_SESSION'; session: ReviewSession }
   | { type: 'PATCH_REVIEW'; id: string; patch: ReviewPatch }
+  | { type: 'PATCH_SCREENSHOT'; id: string; patch: ScreenshotPatch }
   | {
       type: 'PATCH_ATTACHMENT';
       id: string;

@@ -183,6 +183,225 @@ test.afterEach(async ({}, info) => {
   }
 });
 
+test('screenshot studio preserves masked close-ups, edits and original image files', async ({}, info) => {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 2200, height: 1000 });
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await page.evaluate(() => {
+    document.body.innerHTML =
+      '<section id="crop-proof" style="position:relative;margin:80px;width:800px;height:400px;background:white;border:1px solid #ccc"><h1 style="margin:30px">A clear visual reference</h1><p style="margin:30px;font-size:14px">Keep this small label readable.</p><input aria-label="Private field" value="NEVER-EXPORT-THIS" style="position:absolute;left:80px;top:180px;width:240px;height:40px"></section>';
+  });
+  await activate(page);
+  await select(page, '#crop-proof');
+  await save(page, 'Align the label with this edge.', 1);
+  await page
+    .getByRole('button', { name: 'View screenshot for note 1' })
+    .click();
+  const studio = page.getByRole('dialog', { name: 'Screenshot studio' });
+  await expect(studio).toBeVisible();
+  await studio.locator('[data-view="1"]').click();
+  await expect(studio.locator('.evidence-detail')).toContainText(
+    'target and its surroundings',
+  );
+  await studio.getByRole('button', { name: 'Arrow', exact: true }).click();
+  const stage = studio.getByRole('group', { name: 'Screenshot canvas' });
+  const r = (await stage.boundingBox())!;
+  await page.mouse.move(r.x + r.width * 0.25, r.y + r.height * 0.75);
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.width * 0.6, r.y + r.height * 0.65, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await expect(studio.locator('.evidence-marks path')).toHaveCount(2);
+  await studio.getByRole('button', { name: 'Callout', exact: true }).click();
+  await stage.focus();
+  await stage.press('ArrowRight');
+  await stage.press('Enter');
+  await studio
+    .getByRole('textbox', { name: 'Callout 1 text' })
+    .fill('  Align to this edge.\nKeep this wording.  ');
+  await studio
+    .getByRole('button', { name: 'Show original', exact: true })
+    .click();
+  await expect(studio.locator('.evidence-marks path')).toHaveCount(0);
+  await studio
+    .getByRole('button', { name: 'Show my marks', exact: true })
+    .click();
+  await expect(studio.locator('.evidence-marks path')).toHaveCount(2);
+  await studio.getByRole('button', { name: '100%', exact: true }).click();
+  await studio.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect(studio.locator('.zoom-value')).toHaveText('125%');
+  await studio.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('screenshot-studio.png') });
+  await page.setViewportSize({ width: 600, height: 800 });
+  await expect(
+    studio.getByRole('button', { name: 'Save changes', exact: true }),
+  ).toBeInViewport();
+  await page.screenshot({
+    path: info.outputPath('screenshot-studio-narrow.png'),
+  });
+  await studio.getByRole('button', { name: 'Close screenshot editor' }).click();
+  await expect(studio.locator('.evidence-discard')).toBeVisible();
+  await studio.getByRole('button', { name: 'Keep editing' }).click();
+  await studio
+    .getByRole('button', { name: 'Save changes', exact: true })
+    .click();
+  await expect(studio).toBeHidden();
+  await page.setViewportSize({ width: 2200, height: 1000 });
+  await page.reload();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await page
+    .getByRole('button', { name: 'View screenshot for note 1' })
+    .click();
+  await studio.locator('[data-view="1"]').click();
+  await expect(
+    studio.getByRole('textbox', { name: 'Callout 1 text' }),
+  ).toHaveValue('  Align to this edge.\nKeep this wording.  ');
+  await studio.getByRole('button', { name: 'Back to notes' }).click();
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(await readFile((await (await download).path())!));
+  const json = strFromU8(files['feedback.json']);
+  const exported = JSON.parse(json).annotations[0] as Annotation;
+  expect(json).not.toContain('NEVER-EXPORT-THIS');
+  expect(json).not.toContain('data:image');
+  expect(exported.screenshot.status).toBe('available');
+  if (exported.screenshot.status !== 'available')
+    throw new Error('Capture missing.');
+  const crop = exported.screenshot.crops![0];
+  if (crop.status !== 'available') throw new Error('Close-up missing.');
+  expect(exported.screenshot.width).toBe(1600);
+  expect(crop.width).toBeGreaterThan(
+    (exported.targets[0].bounds.width * 1600) / 2200 + 100,
+  );
+  expect(crop.marks).toHaveLength(2);
+  expect(crop.marked).toBeTruthy();
+  expect(files[crop.path]).not.toEqual(files[crop.marked!.path]);
+  expect(strFromU8(files['feedback.md'])).toContain(
+    '  Align to this edge.\nKeep this wording.  ',
+  );
+  const maskedPixel = await page.evaluate(
+    async ({ data, cropBounds }) => {
+      const image = new Image();
+      image.src = data;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(image, 0, 0);
+      // The field center was x=80 margin + 80 inset + 120 half-width, y=80+180+20.
+      return [
+        ...ctx.getImageData(
+          Math.round(280 - cropBounds.x),
+          Math.round(280 - cropBounds.y),
+          1,
+          1,
+        ).data,
+      ];
+    },
+    {
+      data:
+        'data:image/png;base64,' +
+        Buffer.from(files[crop.path]).toString('base64'),
+      cropBounds: crop.bounds,
+    },
+  );
+  expect(maskedPixel).toEqual([220, 225, 223, 255]);
+});
+
+test('comparison roles can swap, survive reload and remain explicit in a handoff', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Make the chart typography match this claim.');
+  await expect(
+    page.getByRole('button', { name: 'Save note', exact: true }),
+  ).toBeDisabled();
+  await select(page, '#retention-chart');
+  await page.getByRole('button', { name: 'Swap change and reference' }).click();
+  await page
+    .getByRole('combobox', { name: 'What to match' })
+    .selectOption('typography');
+  await expect(page.locator('[data-compare-slot="1"]')).toContainText('38%');
+  await page.screenshot({ path: info.outputPath('comparison-picker.png') });
+  await save(page, 'Make the chart typography match this claim.', 1);
+  await page.reload();
+  await expect(page.locator('.comparison-summary')).toContainText('typography');
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(await readFile((await (await download).path())!));
+  const exported = JSON.parse(strFromU8(files['feedback.json']))
+    .annotations[0] as Annotation;
+  expect(exported.targets[0].locator.id).toBe('retention-chart');
+  expect(exported.targets[1].locator.id).toBe('evidence-claim');
+  expect(exported.comparison).toEqual({
+    changeTarget: 0,
+    referenceTarget: 1,
+    dimension: 'typography',
+  });
+  expect(strFromU8(files['feedback.md'])).toContain(
+    'Keep the reference unchanged.',
+  );
+});
+
+test('comparison refinement and reattachment preserve the draft and its relationship', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Multiple', exact: true }).click();
+  await select(page, '#evidence-claim');
+  await select(page, '#retention-chart');
+  await page
+    .getByRole('textbox', { name: 'Your feedback' })
+    .fill('Keep my precise comparison wording.');
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Choose element to change' }).click();
+  await select(page, '#report-title');
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toHaveValue('Keep my precise comparison wording.');
+  await expect(page.locator('.card')).toHaveCount(0);
+  await page
+    .getByRole('combobox', { name: 'What to match' })
+    .selectOption('alignment');
+  await save(page, 'Keep my precise comparison wording.', 1);
+  await page.getByLabel('Details for note 1').click();
+  await page.getByRole('button', { name: 'Reattach', exact: true }).click();
+  await expect(
+    page.getByRole('combobox', { name: 'What to match' }),
+  ).toHaveValue('alignment');
+  await expect(
+    page.getByRole('combobox', { name: 'What to match' }),
+  ).toBeDisabled();
+  await select(page, '#report-title');
+  await expect(
+    page.getByRole('button', { name: 'Attach here', exact: true }),
+  ).toBeDisabled();
+  await select(page, '#retention-chart');
+  await page.getByRole('button', { name: 'Attach here', exact: true }).click();
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card .comment')).toHaveText(
+    'Keep my precise comparison wording.',
+  );
+  await page.getByRole('button', { name: 'Prepare handoff' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save ZIP file' }).click();
+  const files = unzipSync(await readFile((await (await download).path())!));
+  const exported = JSON.parse(strFromU8(files['feedback.json']))
+    .annotations[0] as Annotation;
+  expect(exported.comparison?.dimension).toBe('alignment');
+  expect(exported.reattachments[0].comparison).toEqual(exported.comparison);
+  expect(exported.reattachments[0].targets[0].locator.id).toBe('report-title');
+});
+
 test('handoff selects open Now notes and preserves exact instructions', async ({}, info) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/report.html');
@@ -516,7 +735,7 @@ test('three report comments persist across reload and browser restart, export, a
     annotations: Annotation[];
     schemaVersion: string;
   };
-  expect(data.schemaVersion).toBe('1.1.0');
+  expect(data.schemaVersion).toBe('1.2.0');
   expect(data.annotations).toHaveLength(3);
   expect(data.annotations.map((a) => a.targets[0].locator.id)).toEqual([
     'evidence-claim',

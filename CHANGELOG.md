@@ -2,6 +2,12 @@
 
 ## 0.1.0 — Unreleased
 
+- Compare two elements using Change this / Use as reference, swap roles, and match spacing, typography, color, alignment, or overall style.
+- Capture masked target close-ups before resizing the full viewport.
+- Screenshot studio with zoom, pointer/keyboard arrows, numbered callouts, undo, and explicit save/discard.
+- Preserve original screenshots while exporting marked images and exact callout text; export schema 1.2.0 and backward-compatible backup schema 1.1.0.
+- Protect screenshot edits from stale tab writes and preserve them through reattachment.
+
 - Prepare handoff with selected notes, Now/Later priority, and separate instructions; export schema 1.1.0.
 - Named review sessions spanning pages, with explicit inclusion of older notes.
 - Check changes using original evidence, human acceptance, and preserved original comments plus follow-up instructions.

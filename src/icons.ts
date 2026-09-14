@@ -20,6 +20,12 @@ const paths = {
   note: '<path d="M4 3h16v13l-5 5H4Zm11 18v-5h5M8 8h8M8 12h5"/>',
   grip: '<path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01" stroke-width="3"/>',
   resize: '<path d="m8 20 12-12m-6 12 6-6"/>',
+  swap: '<path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4"/>',
+  image:
+    '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
+  arrow: '<path d="M5 19 19 5M7 5h12v12"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  undo: '<path d="m8 4-5 5 5 5M3 9h11a6 6 0 0 1 0 12"/>',
 } satisfies Record<string, string>;
 
 export function icon(name: keyof typeof paths) {

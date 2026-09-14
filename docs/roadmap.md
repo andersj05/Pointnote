@@ -11,17 +11,19 @@ Implemented: element selection and parent expansion; typed feedback; local persi
 - Check changes against original screenshots and text, with human acceptance and separate follow-up instructions.
 - Whole-page and drawn-area notes for additions and layout feedback.
 - Versioned local backup/restore that keeps existing records.
+- Explicit change/reference comparisons with match dimensions and preserved direction in exports.
+- Masked close-ups plus a screenshot studio with zoom, arrows, callouts, undo, and retained originals.
 
 ## Next, after using the review workflow
 
-- Explicit comparison roles between multiple targets and optional intent fields.
+- Cross-page references and additional optional intent fields.
 - Optional retention controls and backup management for larger libraries.
 - Guided onboarding and validated browser-store distribution.
 - Deliberate mapping between changed preview URLs, with user confirmation of the target.
 - More efficient anchoring for very large reports and richer accessible-name computation.
 - Nested shadow-tree/iframe selection with explicit privacy boundaries.
 - Optional local transcription adapters and broader browser/OS verification.
-- More screenshot options for long sections and multiple offscreen targets.
+- Capture sequences for long sections and multiple offscreen targets.
 
 ## Deliberately deferred
 

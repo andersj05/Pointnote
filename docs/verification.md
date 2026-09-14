@@ -59,6 +59,12 @@ Browser tests write failure images and a report to `test-results/` and `playwrig
 
 Physical microphone input, language-pack downloads, browser vendor transcription, and Edge's installation UI are not simulated as successful in the automated suite. This is the remaining hardware/browser compatibility check.
 
+## Comparison and screenshot acceptance
+
+Select Compare, pick a change target and reference, choose a dimension, and swap roles. Refine one role without saving a separate note. Save, reload, and check that Markdown and ZIP identify both roles correctly. Reattach a comparison and confirm that the original words, match dimension, and previous relationship remain intact.
+
+Open View screenshot on a saved note. Inspect its viewport and close-ups, zoom, draw an arrow, and add a callout with the keyboard. Verify Undo, Show original, and unsaved-close recovery. Save edits, reload, and inspect the ZIP's original and marked PNGs plus callout text. A private form region must remain masked in both viewport and close-up images. Check partial/offscreen targets, screenshot opt-out, missing older image data, a 600-pixel-wide window, and a second tab editing or reattaching the same note.
+
 ## Review workflow acceptance
 
 Create a “Before launch” session and leave notes on two sample pages. Mark one Later, prepare a handoff, and confirm the selected count and instructions. Save a backup, then restore it and verify existing records are kept. After making changes to the sample page, use Check changes to compare the original evidence, accept one item, and add a follow-up to another. Verify the next default handoff contains only the remaining open Now notes. Try page and area notes, including scrolling before saving an area.
