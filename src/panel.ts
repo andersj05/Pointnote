@@ -134,9 +134,23 @@ export function mountPanel(
             : 0;
       const dy =
         event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
-      bounds = resize
-        ? { ...bounds, width: bounds.width + dx, height: bounds.height + dy }
-        : { ...bounds, x: bounds.x + dx, y: bounds.y + dy };
+      if (resize && left) {
+        const right = bounds.x + bounds.width;
+        const width = Math.max(
+          Math.min(320, right - 8),
+          Math.min(right - 8, bounds.width - dx),
+        );
+        bounds = {
+          ...bounds,
+          x: right - width,
+          width,
+          height: bounds.height + dy,
+        };
+      } else {
+        bounds = resize
+          ? { ...bounds, width: bounds.width + dx, height: bounds.height + dy }
+          : { ...bounds, x: bounds.x + dx, y: bounds.y + dy };
+      }
       paint();
       options.save({ ...bounds });
     });

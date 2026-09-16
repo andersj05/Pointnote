@@ -80,7 +80,8 @@ async function mount() {
             <label class="sr-only" for="feedback">Your feedback</label>
             <textarea id="feedback" maxlength="20000" placeholder="Write a note, or say it out loud…" aria-label="Your feedback" aria-describedby="save-hint"></textarea>
             <div class="composer-toolbar"><div class="voice-slot"></div>
-            <div class="composer-actions"><span class="save-hint sr-only" id="save-hint">Saves when you select the next target</span><button class="icon draft-clear" type="button" data-action="cancel" aria-label="Clear" title="Discard this draft and selection">${icon('close')}</button><button class="icon save-button" type="submit" data-action="save" aria-label="Save note" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>${icon('check')}</button></div></div>
+            <div class="composer-actions"><button class="icon draft-clear" type="button" data-action="cancel" aria-label="Clear draft" title="Discard this draft and selection">${icon('close')}</button><button class="icon save-button" type="submit" data-action="save" aria-label="Save note" title="Save note · Ctrl+Enter or ⌘+Enter" disabled>${icon('check')}<span>Save</span></button></div></div>
+            <p class="save-hint" id="save-hint">Saves when you select the next target</p>
           </form>
           <div class="notes-heading"><h2>Notes <span class="count">0</span></h2><div class="note-tools"><label class="search-field">${icon('search')}<input type="search" class="note-search" aria-label="Search notes" placeholder="Search"></label><select class="note-filter" aria-label="Filter notes"><option value="all">All notes</option><option value="open">Open</option><option value="addressed">Addressed</option><option value="needs-reattachment">Needs reattachment</option></select></div></div>
           <div class="notes"></div>
@@ -114,6 +115,7 @@ async function mount() {
     reviewing = true,
     busy = false;
   let transitioning = false;
+  let selectionFocus: HTMLElement | undefined;
   let reviews: ReturnType<typeof mountReviewWorkspace> | undefined = undefined;
   let reviewOpen = false;
   let screenshotOpen = false;
@@ -247,16 +249,22 @@ async function mount() {
     selectionMode = mode;
     for (const button of root.querySelectorAll<HTMLElement>('[data-mode]'))
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
-    $('.hint').textContent = {
-      element: 'Click something you want to change',
-      text: 'Drag across a passage on the page',
-      multiple: 'Select up to 12 elements on the page',
-      region: 'Drag over an area you want to change',
-      page: 'Add feedback about the whole page',
-      compare: 'Choose what to change, then its reference',
-    }[mode];
+    updateSelectionHint();
+  }
+  function updateSelectionHint() {
+    $('.hint').textContent = !reviewing
+      ? 'Selection paused. You can use the page normally.'
+      : {
+          element: 'Click an element, or focus it and press Enter',
+          text: 'Drag across a passage on the page',
+          multiple: 'Select up to 12 elements on the page',
+          region: 'Drag over an area you want to change',
+          page: 'Add feedback about the whole page',
+          compare: 'Choose what to change, then its reference',
+        }[selectionMode];
   }
   function updateControls() {
+    updateSelectionHint();
     const locked =
       busy || transitioning || screenshotOpen || Boolean(reviews?.isBusy);
     $<HTMLButtonElement>('[data-action=clear-page]').disabled =
@@ -295,7 +303,7 @@ async function mount() {
       selected[0].parentElement === document.body;
     $('[data-action=save]').innerHTML = reattaching
       ? 'Attach here'
-      : icon('check');
+      : icon('check') + '<span>Save</span>';
     $('[data-action=save]').setAttribute(
       'aria-label',
       reattaching ? 'Attach here' : 'Save note',
@@ -314,10 +322,16 @@ async function mount() {
             ? 'Write or record a note first'
             : 'Save note · Ctrl+Enter or ⌘+Enter';
     $('.save-hint').textContent = reattaching
-      ? 'Confirm the new target below'
+      ? 'Choose Attach here to confirm the new target.'
       : transitioning && voice.recording
         ? 'Finishing your voice note…'
-        : 'Saves on next selection';
+        : voice.recording
+          ? 'Finish recording to edit or save your note.'
+          : !hasSelection()
+            ? 'Select a target, or choose Page note above.'
+            : selectionMode === 'compare' && selected.length !== 2
+              ? 'Choose both targets before saving.'
+              : 'Save now, or select your next target to save.';
     feedback.disabled = locked || voice.recording || Boolean(reattaching);
     for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
       $<HTMLButtonElement>(`[data-action=${action}]`).disabled = locked;
@@ -479,6 +493,15 @@ async function mount() {
   }
   function renderNotes() {
     const list = $('.notes');
+    const focused = root.activeElement as HTMLElement | null;
+    const focusedCard = focused?.closest<HTMLElement>('.card');
+    const focusKey = focused?.dataset.noteAction;
+    const expanded = new Map(
+      [...list.querySelectorAll<HTMLElement>('.card')].map((card) => [
+        card.dataset.noteId,
+        card.querySelector<HTMLDetailsElement>('details')!.open,
+      ]),
+    );
     list.replaceChildren();
     $('.count').textContent = String(annotations.length);
     $('.note-filter').hidden = !annotations.length;
@@ -486,7 +509,8 @@ async function mount() {
     if (!annotations.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = '<span>Your notes will appear here</span>';
+      empty.innerHTML =
+        '<span>Your notes will appear here</span><p>Select something on the page, add your feedback, then save. Use Page note for feedback about the whole page.</p>';
       list.append(empty);
     }
     annotations.forEach((a, i) => {
@@ -541,7 +565,8 @@ async function mount() {
         ' · ' +
         title.textContent;
       title.onclick = () => revisit(a);
-      title.setAttribute('aria-label', 'Open note ' + (i + 1));
+      title.setAttribute('aria-label', 'Locate note ' + (i + 1));
+      title.dataset.noteAction = 'locate';
       const status = document.createElement('span');
       status.className =
         'status' + (a.status === 'needs-reattachment' ? ' missing' : '');
@@ -550,7 +575,9 @@ async function mount() {
           ? 'Reattach'
           : a.review?.outcome === 'accepted'
             ? 'Accepted'
-            : a.status;
+            : a.resolution === 'addressed'
+              ? 'Addressed'
+              : 'Open';
       status.hidden = a.status === 'open';
       const comment = document.createElement('p');
       comment.className = 'comment';
@@ -574,10 +601,12 @@ async function mount() {
       actions.className = 'card-actions';
       const details = document.createElement('details');
       details.className = 'note-details';
-      details.open = a.status === 'needs-reattachment';
+      details.open =
+        a.status === 'needs-reattachment' || expanded.get(a.id) === true;
       const summary = document.createElement('summary');
       summary.innerHTML = 'Details <span aria-hidden="true">⌄</span>';
       summary.setAttribute('aria-label', 'Details for note ' + (i + 1));
+      summary.dataset.noteAction = 'details';
       const detailActions = document.createElement('div');
       detailActions.className = 'detail-actions';
       const priority = document.createElement('select');
@@ -585,16 +614,24 @@ async function mount() {
       priority.innerHTML =
         '<option value="now">Now</option><option value="later">Later</option>';
       priority.value = a.priority || 'now';
+      priority.dataset.noteAction = 'priority';
       priority.onchange = () =>
         act(async () => {
-          const updated = await rpc<Annotation>({
-            type: 'PATCH_REVIEW',
-            id: a.id,
-            patch: { priority: priority.value as 'now' | 'later' },
-          });
-          Object.assign(a, updated);
-          renderNotes();
-          await reviews?.refreshSummary();
+          priority.disabled = true;
+          try {
+            const updated = await rpc<Annotation>({
+              type: 'PATCH_REVIEW',
+              id: a.id,
+              patch: { priority: priority.value as 'now' | 'later' },
+            });
+            Object.assign(a, updated);
+            await reviews?.refreshSummary();
+          } finally {
+            priority.disabled = false;
+            priority.value = a.priority || 'now';
+            if (!root.activeElement) priority.focus({ preventScroll: true });
+            renderNotes();
+          }
         });
       details.append(
         summary,
@@ -608,6 +645,8 @@ async function mount() {
         const b = document.createElement('button');
         b.className = 'note-action';
         b.textContent = text;
+        b.dataset.noteAction =
+          text === 'Mark addressed' || text === 'Reopen' ? 'resolution' : text;
         if (text === 'Mark addressed' || text === 'Reopen')
           b.innerHTML = icon('check') + text;
         b.disabled = busy || voice.recording;
@@ -677,6 +716,7 @@ async function mount() {
       if (a.screenshot.status === 'available' && a.screenshot.dataUrl) {
         const preview = document.createElement('button');
         preview.className = 'evidence-preview';
+        preview.dataset.noteAction = 'screenshot';
         preview.setAttribute('aria-label', `View screenshot for note ${i + 1}`);
         const thumb = document.createElement('img');
         thumb.src = a.screenshot.marked?.dataUrl || a.screenshot.dataUrl;
@@ -721,7 +761,24 @@ async function mount() {
       empty.append(reset);
       list.append(empty);
     }
+    const shown = list.querySelectorAll('.card').length;
+    $('.count').textContent =
+      shown === annotations.length
+        ? String(shown)
+        : `${shown} of ${annotations.length}`;
     updateControls();
+    if (focusedCard && focusKey) {
+      const replacement = [...list.querySelectorAll<HTMLElement>('.card')].find(
+        (card) => card.dataset.noteId === focusedCard.dataset.noteId,
+      );
+      const control = [
+        ...(replacement?.querySelectorAll<HTMLElement>('[data-note-action]') ||
+          []),
+      ].find((el) => el.dataset.noteAction === focusKey);
+      focusSelection(
+        annotations.length ? control || $('.note-search') : feedback,
+      );
+    }
   }
   async function reconcile() {
     if (matching || busy) {
@@ -803,6 +860,7 @@ async function mount() {
   }
   function setReviewing(value: boolean) {
     reviewing = value;
+    updateSelectionHint();
     shield.hidden =
       !selectionActive() ||
       selectionMode === 'text' ||
@@ -949,7 +1007,13 @@ async function mount() {
     } finally {
       transitioning = false;
       updateControls();
+      selectionFocus?.focus();
+      selectionFocus = undefined;
     }
+  }
+  function focusSelection(control: HTMLElement) {
+    if (transitioning) selectionFocus = control;
+    else control.focus();
   }
   function underPointer(x: number, y: number): Element | null {
     return (
@@ -1018,7 +1082,7 @@ async function mount() {
         quote = undefined;
         selectedId = reattaching;
         renderSelection();
-        feedback.focus();
+        focusSelection(feedback);
       }),
     );
   });
@@ -1043,7 +1107,9 @@ async function mount() {
     )
       return;
     const element = underPointer(event.clientX, event.clientY);
-    if (!element) return;
+    if (element) choosePageElement(element, event.shiftKey);
+  });
+  function choosePageElement(element: Element, additive = false) {
     if (selectionMode === 'compare') {
       if (voice.recording) return;
       const chooseComparison = () => {
@@ -1061,7 +1127,7 @@ async function mount() {
         selectedId = reattaching;
         hovered = null;
         renderSelection();
-        if (selected.length === 2) feedback.focus();
+        if (selected.length === 2) focusSelection(feedback);
       };
       if (selected.length === 2 && comparisonSlot === null && !reattaching) {
         act(() =>
@@ -1074,7 +1140,7 @@ async function mount() {
       } else chooseComparison();
       return;
     }
-    const multiple = selectionMode === 'multiple' || event.shiftKey;
+    const multiple = selectionMode === 'multiple' || additive;
     if (multiple && voice.recording) return;
     const choose = () => {
       if (!element.isConnected) {
@@ -1097,8 +1163,8 @@ async function mount() {
       renderSelection();
       if (preferences.voiceShortcut?.kind === 'key') {
         panel.tabIndex = -1;
-        panel.focus({ preventScroll: true });
-      } else feedback.focus();
+        focusSelection(panel);
+      } else focusSelection(feedback);
     };
     if (
       multiple ||
@@ -1106,6 +1172,18 @@ async function mount() {
     )
       choose();
     else act(() => changeSelection(choose));
+  }
+  window.addEventListener('focusin', (event) => {
+    if (
+      !selectionActive() ||
+      busy ||
+      transitioning ||
+      event.composedPath().includes(host)
+    )
+      return;
+    if (!['element', 'multiple', 'compare'].includes(selectionMode)) return;
+    hovered = event.target instanceof Element ? event.target : null;
+    draw();
   });
   // The shield prevents hit-testing the real controls. Capture listeners also stop
   // bubbling handlers on the host page while selection mode is active.
@@ -1159,8 +1237,8 @@ async function mount() {
                   setNotice('Text selected. Add your feedback.', true);
                   if (preferences.voiceShortcut?.kind === 'key') {
                     panel.tabIndex = -1;
-                    panel.focus({ preventScroll: true });
-                  } else feedback.focus();
+                    focusSelection(panel);
+                  } else focusSelection(feedback);
                 }),
               );
             }, 0);
@@ -1215,6 +1293,21 @@ async function mount() {
       ) {
         event.preventDefault();
         event.stopImmediatePropagation();
+        const element = document.activeElement;
+        if (
+          !busy &&
+          !transitioning &&
+          !event.repeat &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          ['element', 'multiple', 'compare'].includes(selectionMode) &&
+          element &&
+          element !== document.body &&
+          element !== document.documentElement &&
+          element !== host
+        )
+          choosePageElement(element, event.shiftKey);
       }
     },
     true,
@@ -1269,7 +1362,7 @@ async function mount() {
           hovered = null;
           setReviewing(true);
           renderSelection();
-          if (selectionMode === 'page') feedback.focus();
+          if (selectionMode === 'page') focusSelection(feedback);
         }),
       );
     };
