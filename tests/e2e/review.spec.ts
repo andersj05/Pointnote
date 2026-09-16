@@ -851,7 +851,9 @@ test('three report comments persist across reload and browser restart, export, a
   );
   await page.reload();
   await expect(page.locator('.card')).toHaveCount(3);
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.target-name')).toContainText('evidence-claim');
   await page.screenshot({ path: info.outputPath('review.png') });
   await context.close();
@@ -1058,7 +1060,7 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
     .locator('.card')
     .getByRole('button', { name: 'Mark addressed' })
     .click();
-  await expect(page.locator('.card .status')).toHaveText('addressed');
+  await expect(page.locator('.card .status')).toHaveText('Addressed');
   await page.locator('#evidence-claim').evaluate((el) => {
     el.removeAttribute('id');
     el.after(el.cloneNode(true));
@@ -1209,6 +1211,7 @@ test('notes can be searched and filtered without changing the export, and keyboa
     .selectOption('open');
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.comment')).toHaveText('Label the chart axes.');
+  await expect(page.locator('.count')).toHaveText('1 of 2');
   await page
     .getByRole('combobox', { name: 'Filter notes' })
     .selectOption('all');
@@ -1228,6 +1231,7 @@ test('notes can be searched and filtered without changing the export, and keyboa
   await expect(
     page.getByText('No matching notes', { exact: true }),
   ).toBeVisible();
+  await expect(page.locator('.count')).toHaveText('0 of 2');
   await page
     .getByRole('button', { name: 'Clear filters', exact: true })
     .click();
@@ -1242,6 +1246,16 @@ test('notes can be searched and filtered without changing the export, and keyboa
   ).toBeHidden();
   await first.locator('summary').click();
   await expect(first.locator('.image-state')).toHaveText('Screenshot attached');
+  const priority = first.getByRole('combobox', { name: 'Priority for note 1' });
+  await priority.focus();
+  await priority.selectOption('later');
+  await expect(priority).toBeFocused();
+  await expect(priority).toHaveValue('later');
+  await expect(first.locator('details')).toHaveAttribute('open', '');
+  const cardWidth = (await first.boundingBox())!.width;
+  expect((await first.locator('details').boundingBox())!.width).toBeGreaterThan(
+    cardWidth - 5,
+  );
   await first.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.locator('.card')).toHaveCount(2);
   await first
@@ -1800,7 +1814,9 @@ test('switching targets autosaves exact drafts and keeps selection refinements t
   await expect(page.locator('.target-name')).toContainText('retention-chart');
   await expect(draft).toHaveValue('');
   await draft.fill('Label the comparison.');
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.card')).toHaveCount(2);
   await expect(page.locator('.target-name')).toContainText('evidence-claim');
   await expect(draft).toHaveValue('');
@@ -1857,7 +1873,9 @@ test('switching during recording waits for final words and saves to the original
   await draft.fill('A separate typed note.');
   await page.getByRole('button', { name: 'Save note' }).click();
   await expect(page.locator('.card')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.target-name')).toContainText('evidence-claim');
   await page
     .locator('.panel')
@@ -2083,7 +2101,7 @@ test('clear all notes confirms page scope, preserves drafts, and recovers from f
   await expect(page.getByRole('status')).toContainText(
     'Simulated delete failure',
   );
-  await expect(page.locator('.count')).toHaveText('2');
+  await expect(page.locator('.count')).toHaveText('1 of 2');
   await expect(draft).toHaveValue('Keep my unsaved draft.');
   await inContentWorld(
     page,
@@ -2119,7 +2137,9 @@ test('Parent refines a written draft without submitting the compact composer', a
   await expect(page.locator('.card')).toHaveCount(0);
   await select(page, '#retention-chart');
   await expect(page.locator('.card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.target-name')).toContainText(
     'recommendation-cards',
   );
