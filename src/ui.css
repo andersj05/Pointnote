@@ -1245,6 +1245,12 @@ kbd {
   font-weight: 600;
   margin: 0 0 8px;
 }
+.review-scope {
+  margin: 0 0 6px;
+  color: #42604c;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .review-field {
   display: block;
   margin: 12px 0;
@@ -1581,6 +1587,7 @@ kbd {
   padding: 9px 18px;
   border-block: 1px solid #e3e9e5;
   background: #f9fbfa;
+  flex-shrink: 0;
 }
 .evidence-toolbar button {
   display: inline-flex;
@@ -1609,6 +1616,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 3px;
+  flex-wrap: wrap;
 }
 .zoom-value {
   width: 45px;
@@ -1858,6 +1866,10 @@ kbd {
   background: #fff5ef;
   padding: 10px 20px;
   font-size: 12px;
+  flex-shrink: 0;
+  max-height: 20vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 .evidence-discard {
   display: flex;
@@ -1868,6 +1880,7 @@ kbd {
   padding: 10px 20px;
   color: #865731;
   font-size: 11px;
+  flex-shrink: 0;
 }
 .evidence-discard span {
   margin-right: auto;
@@ -1901,12 +1914,15 @@ kbd {
   }
   .evidence-layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(160px, 1fr) minmax(0, 180px);
+    grid-template-rows: minmax(220px, 1fr) auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .evidence-sidebar {
     border-left: 0;
     border-top: 1px solid #e2e9e4;
     padding: 12px;
+    overflow: visible;
   }
   .evidence-choices {
     flex-direction: row;
@@ -1922,5 +1938,23 @@ kbd {
   .evidence-save-state {
     flex-basis: 100%;
     font-size: 10px;
+  }
+}
+@media (max-height: 540px) and (min-width: 681px) {
+  .evidence-overlay {
+    padding: 8px;
+  }
+  .evidence-heading {
+    padding: 8px 14px;
+  }
+  .evidence-eyebrow {
+    display: none;
+  }
+  .evidence-help {
+    padding: 6px 12px;
+    min-height: 0;
+  }
+  .evidence-footer {
+    padding: 8px 14px;
   }
 }

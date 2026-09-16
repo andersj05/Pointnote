@@ -258,6 +258,67 @@ test('review actions retain keyboard focus and require a session name', async ()
   await expect(page.locator('.review-summary')).toContainText('every note');
 });
 
+test('screenshot studio keeps small-window controls and keyboard recovery reachable', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Page note', exact: true }).click();
+  await save(page, 'Check the small-window screenshot workflow.', 1);
+  await page
+    .getByRole('button', { name: 'View screenshot for note 1' })
+    .click();
+  const studio = page.getByRole('dialog', { name: 'Screenshot studio' });
+  for (const size of [
+    { width: 600, height: 400 },
+    { width: 320, height: 480 },
+  ]) {
+    await page.setViewportSize(size);
+    const original = studio.getByRole('button', {
+      name: 'Show original',
+      exact: true,
+    });
+    await original.scrollIntoViewIfNeeded();
+    await expect(original).toBeInViewport();
+    await original.click();
+    await studio
+      .getByRole('button', { name: 'Show my marks', exact: true })
+      .click();
+    await expect(
+      studio.getByRole('button', { name: 'Save changes', exact: true }),
+    ).toBeInViewport();
+  }
+  await studio.getByRole('button', { name: 'Callout', exact: true }).click();
+  const canvas = studio.getByRole('group', { name: 'Screenshot canvas' });
+  await canvas.focus();
+  await page.keyboard.press('Enter');
+  const field = studio.getByRole('textbox', { name: 'Callout 1 text' });
+  await expect(field).toBeFocused();
+  await expect(field).toBeInViewport();
+  await field.fill('Keep the controls reachable.');
+  await page.screenshot({ path: info.outputPath('studio-compact.png') });
+  await studio
+    .getByRole('button', { name: 'Remove callout 1', exact: true })
+    .click();
+  await expect(canvas).toBeFocused();
+  await page.keyboard.press('Enter');
+  await field.fill('Retain this edit.');
+  await page.keyboard.press('Escape');
+  await expect(
+    studio.getByRole('button', { name: 'Keep editing', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(
+    studio.getByRole('button', { name: 'Keep editing', exact: true }),
+  ).toBeHidden();
+  await expect(
+    studio.getByRole('button', { name: 'Save changes', exact: true }),
+  ).toBeFocused();
+  await studio
+    .getByRole('button', { name: 'Save changes', exact: true })
+    .click();
+  await expect(studio).toBeHidden();
+});
+
 test('screenshot studio preserves masked close-ups, edits and original image files', async ({}, info) => {
   const page = await context.newPage();
   await page.setViewportSize({ width: 2200, height: 1000 });
