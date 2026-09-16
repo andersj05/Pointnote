@@ -1080,6 +1080,44 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
   expect(data.annotations[0].originalComment).toBe('Keep this exact note.');
 });
 
+test('keyboard selection attaches focused controls without activating the page', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/frontend.html');
+  await activate(page);
+  const target = page.locator('#complete-task');
+  await target.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#project-status')).toHaveText('No actions yet');
+  await expect(page.locator('.target .excerpt')).toContainText(
+    'Complete a task',
+  );
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toBeFocused();
+  await save(page, 'Make the action easier to find.', 1);
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await target.focus();
+  await page.keyboard.press('Space');
+  await page.locator('#route-change').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-compare-slot="0"]')).toContainText(
+    'Complete a task',
+  );
+  await expect(page.locator('[data-compare-slot="1"]')).toContainText(
+    'Open activity view',
+  );
+  await save(page, 'Match the action button styling.', 2);
+  await expect(page.locator('#project-status')).toHaveText('No actions yet');
+  await expect(page).toHaveURL('http://127.0.0.1:4173/frontend.html');
+  await page
+    .getByRole('button', { name: 'Pause selection', exact: true })
+    .click();
+  await expect(page.locator('.hint')).toContainText('Selection paused');
+  await target.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#project-status')).toHaveText('1 task completed');
+});
+
 test('panel can move, resize, minimize and restore with layout and settings persisted', async ({}, info) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/frontend.html');
@@ -1156,6 +1194,17 @@ test('panel can move, resize, minimize and restore with layout and settings pers
   expect((await panel.boundingBox())!.height).toBeCloseTo(
     original.height - 8,
     0,
+  );
+  const beforeLeftResize = (await panel.boundingBox())!;
+  await page
+    .getByRole('button', { name: 'Resize panel from left', exact: true })
+    .focus();
+  await page.keyboard.press('ArrowLeft');
+  const afterLeftResize = (await panel.boundingBox())!;
+  expect(afterLeftResize.x).toBe(beforeLeftResize.x - 8);
+  expect(afterLeftResize.width).toBe(beforeLeftResize.width + 8);
+  expect(afterLeftResize.x + afterLeftResize.width).toBe(
+    beforeLeftResize.x + beforeLeftResize.width,
   );
   await page.setViewportSize({ width: 360, height: 600 });
   await expect

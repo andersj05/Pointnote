@@ -248,16 +248,22 @@ async function mount() {
     selectionMode = mode;
     for (const button of root.querySelectorAll<HTMLElement>('[data-mode]'))
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
-    $('.hint').textContent = {
-      element: 'Click something you want to change',
-      text: 'Drag across a passage on the page',
-      multiple: 'Select up to 12 elements on the page',
-      region: 'Drag over an area you want to change',
-      page: 'Add feedback about the whole page',
-      compare: 'Choose what to change, then its reference',
-    }[mode];
+    updateSelectionHint();
+  }
+  function updateSelectionHint() {
+    $('.hint').textContent = !reviewing
+      ? 'Selection paused. You can use the page normally.'
+      : {
+          element: 'Click an element, or focus it and press Enter',
+          text: 'Drag across a passage on the page',
+          multiple: 'Select up to 12 elements on the page',
+          region: 'Drag over an area you want to change',
+          page: 'Add feedback about the whole page',
+          compare: 'Choose what to change, then its reference',
+        }[selectionMode];
   }
   function updateControls() {
+    updateSelectionHint();
     const locked =
       busy || transitioning || screenshotOpen || Boolean(reviews?.isBusy);
     $<HTMLButtonElement>('[data-action=clear-page]').disabled =
@@ -850,6 +856,7 @@ async function mount() {
   }
   function setReviewing(value: boolean) {
     reviewing = value;
+    updateSelectionHint();
     shield.hidden =
       !selectionActive() ||
       selectionMode === 'text' ||
@@ -1090,7 +1097,9 @@ async function mount() {
     )
       return;
     const element = underPointer(event.clientX, event.clientY);
-    if (!element) return;
+    if (element) choosePageElement(element, event.shiftKey);
+  });
+  function choosePageElement(element: Element, additive = false) {
     if (selectionMode === 'compare') {
       if (voice.recording) return;
       const chooseComparison = () => {
@@ -1121,7 +1130,7 @@ async function mount() {
       } else chooseComparison();
       return;
     }
-    const multiple = selectionMode === 'multiple' || event.shiftKey;
+    const multiple = selectionMode === 'multiple' || additive;
     if (multiple && voice.recording) return;
     const choose = () => {
       if (!element.isConnected) {
@@ -1153,6 +1162,18 @@ async function mount() {
     )
       choose();
     else act(() => changeSelection(choose));
+  }
+  window.addEventListener('focusin', (event) => {
+    if (
+      !selectionActive() ||
+      busy ||
+      transitioning ||
+      event.composedPath().includes(host)
+    )
+      return;
+    if (!['element', 'multiple', 'compare'].includes(selectionMode)) return;
+    hovered = event.target instanceof Element ? event.target : null;
+    draw();
   });
   // The shield prevents hit-testing the real controls. Capture listeners also stop
   // bubbling handlers on the host page while selection mode is active.
@@ -1262,6 +1283,21 @@ async function mount() {
       ) {
         event.preventDefault();
         event.stopImmediatePropagation();
+        const element = document.activeElement;
+        if (
+          !busy &&
+          !transitioning &&
+          !event.repeat &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          ['element', 'multiple', 'compare'].includes(selectionMode) &&
+          element &&
+          element !== document.body &&
+          element !== document.documentElement &&
+          element !== host
+        )
+          choosePageElement(element, event.shiftKey);
       }
     },
     true,
