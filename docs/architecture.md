@@ -11,6 +11,9 @@
 - `src/anchor.ts`: conservative element matching.
 - `src/range.ts`: normalized quote anchors across inline markup, with private-region rejection.
 - `src/screenshot.ts`: viewport capture, privacy masks, geometry validation, and target outlines.
+- `src/comparison.ts`: comparison dimensions and explicit change/reference descriptions.
+- `src/screenshot-crop.ts`, `src/screenshot-edit.ts`, `src/screenshot-render.ts`: bounded masked close-ups, reversible markup, and locally rendered marked PNGs.
+- `src/screenshot-studio.ts`: inspection and editing of saved images, responsive controls, keyboard drawing, focus recovery, and explicit save/discard.
 - `src/storage.ts`: IndexedDB v2, one record per annotation indexed by page key, plus a sessions store. The upgrade retains the existing v1 annotation store. Metadata patches merge in a transaction and refuse to recreate a deleted note; capture writes preserve existing review metadata and original comments. Writes resolve on transaction completion. Clearing a page deletes its indexed records in one transaction. The UI waits for in-flight attachment reconciliation before deletion so those writes cannot restore cleared notes.
 - `src/voice.ts`: voice onboarding, saved consent, hold-to-talk and hands-free controls, and separate voice settings. Recording modes keep mouse/keyboard releases from stopping a different recording gesture. Session IDs reject callbacks from cleared, canceled, or finished recordings.
 - `src/voice-wave.ts`: layered SVG curves animated with requestAnimationFrame only during detected speech. Motion cancels on stop, reduced-motion changes, hidden pages, and detached markup; no additional microphone stream is opened.

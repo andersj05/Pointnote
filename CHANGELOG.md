@@ -2,20 +2,27 @@
 
 ## 0.1.0 — Unreleased
 
+- Keyboard selection of focused page elements with Enter/Space, including comparison roles; normal page activation returns when paused.
+- Visible Save and autosave guidance, clearer empty/paused states, matching Locate labels, and filtered note counts.
+- Retained keyboard focus and expanded note Details through priority and review actions; session names are required and session editing can be canceled.
+- Screenshot controls remain reachable in narrow and short windows, with keyboard recovery after callout removal and Escape from the discard prompt.
+- Left-edge keyboard resizing matches pointer resizing; the composer receives focus after selection completes.
+- Consolidated installation, user, and verification guides; removed superseded audit and roadmap documents.
+
 - Compare two elements using Change this / Use as reference, swap roles, and match spacing, typography, color, alignment, or overall style.
 - Capture masked target close-ups before resizing the full viewport.
 - Screenshot studio with zoom, pointer/keyboard arrows, numbered callouts, undo, and explicit save/discard.
 - Preserve original screenshots while exporting marked images and exact callout text; export schema 1.2.0 and backward-compatible backup schema 1.1.0.
 - Protect screenshot edits from stale tab writes and preserve them through reattachment.
 
-- Prepare handoff with selected notes, Now/Later priority, and separate instructions; export schema 1.1.0.
+- Prepare handoff with selected notes, Now/Later priority, and separate instructions.
 - Named review sessions spanning pages, with explicit inclusion of older notes.
 - Check changes using original evidence, human acceptance, and preserved original comments plus follow-up instructions.
 - Whole-page and drawn-area feedback, including viewport-change protection for unsaved areas.
 - Validated local backups and atomic restore without overwriting existing notes.
 - IndexedDB v2 migration preserving existing annotations.
 
-- Redesigned review workspace with crisp edges, compact controls, dedicated settings, and locally bundled icons.
+- Compact review workspace with dedicated settings and locally bundled icons.
 - Draggable, resizable, minimizable panel with keyboard controls, saved layout, and viewport recovery.
 - Prominent hold-to-talk control, hands-free recording, and protection against stale recording results.
 - Search and status filters, keyboard saving, and persistent voice/capture preferences.

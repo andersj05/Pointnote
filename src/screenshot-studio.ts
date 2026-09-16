@@ -134,7 +134,8 @@ export function mountScreenshotStudio(
       const row = document.createElement('label');
       row.className = 'evidence-callout';
       const label = document.createElement('span');
-      label.textContent = String(++number);
+      const calloutNumber = ++number;
+      label.textContent = String(calloutNumber);
       const field = document.createElement('textarea');
       field.rows = 2;
       field.maxLength = 240;
@@ -165,6 +166,10 @@ export function mountScreenshotStudio(
         draw();
         listCallouts();
         update();
+        const fields = list.querySelectorAll<HTMLTextAreaElement>('textarea');
+        (
+          fields[Math.min(calloutNumber - 1, fields.length - 1)] || stage
+        ).focus();
       };
       row.append(label, field, remove);
       list.append(row);
@@ -382,7 +387,8 @@ export function mountScreenshotStudio(
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      if (!$('.evidence-discard').hidden) keepEditing();
+      else close();
     }
     if (event.key === 'Tab') {
       const focusable = [
@@ -414,10 +420,12 @@ export function mountScreenshotStudio(
   $('[data-studio=close]').onclick = $('[data-studio=cancel]').onclick = () =>
     close();
   $('[data-studio=discard]').onclick = () => close(true);
-  $('[data-studio=keep]').onclick = () => {
+  function keepEditing() {
     $('.evidence-discard').hidden = true;
-    $('[data-studio=save]').focus();
-  };
+    const save = $<HTMLButtonElement>('[data-studio=save]');
+    (save.disabled ? $('[data-studio=close]') : save).focus();
+  }
+  $('[data-studio=keep]').onclick = keepEditing;
   $('[data-studio=in]').onclick = () => scale(zoom * 1.25);
   $('[data-studio=out]').onclick = () => scale(zoom / 1.25);
   $('[data-studio=fit]').onclick = fit;

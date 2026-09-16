@@ -183,6 +183,142 @@ test.afterEach(async ({}, info) => {
   }
 });
 
+test('review actions retain keyboard focus and require a session name', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Review sessions' }).click();
+  const start = page.getByRole('button', {
+    name: 'Start session',
+    exact: true,
+  });
+  await expect(start).toBeDisabled();
+  await page
+    .getByRole('textbox', { name: 'New session name', exact: true })
+    .fill('   ');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download backup' }).click();
+  await download;
+  await expect(start).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Download backup' }),
+  ).toBeFocused();
+  await page
+    .getByRole('textbox', { name: 'New session name', exact: true })
+    .fill('Launch review');
+  await start.click();
+  await expect(
+    page.getByRole('combobox', { name: 'Active review session' }),
+  ).not.toHaveValue('');
+  await expect(start).toBeDisabled();
+  await page.getByRole('button', { name: 'Edit session', exact: true }).click();
+  await expect(
+    page.getByRole('textbox', { name: 'Session name', exact: true }),
+  ).toBeFocused();
+  await page
+    .getByRole('textbox', { name: 'Session name', exact: true })
+    .fill('Discard this edit');
+  await page.getByRole('button', { name: 'Cancel edit' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Edit session', exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole('combobox', { name: 'Active review session' }),
+  ).toContainText('Launch review');
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page.getByRole('button', { name: 'Page note', exact: true }).click();
+  await save(page, 'A keyboard review note.', 1);
+  await page
+    .getByRole('button', { name: 'Prepare handoff', exact: true })
+    .click();
+  await expect(page.locator('.review-scope')).toHaveText('Launch review');
+  const clear = page.getByRole('button', {
+    name: 'Clear selection',
+    exact: true,
+  });
+  await clear.click();
+  await expect(clear).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: 'Copy Markdown to clipboard' }),
+  ).toBeDisabled();
+  const all = page.getByRole('button', { name: 'Select all', exact: true });
+  await all.press('Enter');
+  await expect(all).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: 'Copy Markdown to clipboard' }),
+  ).toBeEnabled();
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page
+    .getByRole('button', { name: 'Check changes', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Check changes', exact: true }),
+  ).toBeFocused();
+  await expect(page.locator('.review-summary')).toContainText('every note');
+});
+
+test('screenshot studio keeps small-window controls and keyboard recovery reachable', async ({}, info) => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Page note', exact: true }).click();
+  await save(page, 'Check the small-window screenshot workflow.', 1);
+  await page
+    .getByRole('button', { name: 'View screenshot for note 1' })
+    .click();
+  const studio = page.getByRole('dialog', { name: 'Screenshot studio' });
+  for (const size of [
+    { width: 600, height: 400 },
+    { width: 320, height: 480 },
+  ]) {
+    await page.setViewportSize(size);
+    const original = studio.getByRole('button', {
+      name: 'Show original',
+      exact: true,
+    });
+    await original.scrollIntoViewIfNeeded();
+    await expect(original).toBeInViewport();
+    await original.click();
+    await studio
+      .getByRole('button', { name: 'Show my marks', exact: true })
+      .click();
+    await expect(
+      studio.getByRole('button', { name: 'Save changes', exact: true }),
+    ).toBeInViewport();
+  }
+  await studio.getByRole('button', { name: 'Callout', exact: true }).click();
+  const canvas = studio.getByRole('group', { name: 'Screenshot canvas' });
+  await canvas.focus();
+  await page.keyboard.press('Enter');
+  const field = studio.getByRole('textbox', { name: 'Callout 1 text' });
+  await expect(field).toBeFocused();
+  await expect(field).toBeInViewport();
+  await field.fill('Keep the controls reachable.');
+  await page.screenshot({ path: info.outputPath('studio-compact.png') });
+  await studio
+    .getByRole('button', { name: 'Remove callout 1', exact: true })
+    .click();
+  await expect(canvas).toBeFocused();
+  await page.keyboard.press('Enter');
+  await field.fill('Retain this edit.');
+  await page.keyboard.press('Escape');
+  await expect(
+    studio.getByRole('button', { name: 'Keep editing', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(
+    studio.getByRole('button', { name: 'Keep editing', exact: true }),
+  ).toBeHidden();
+  await expect(
+    studio.getByRole('button', { name: 'Save changes', exact: true }),
+  ).toBeFocused();
+  await studio
+    .getByRole('button', { name: 'Save changes', exact: true })
+    .click();
+  await expect(studio).toBeHidden();
+});
+
 test('screenshot studio preserves masked close-ups, edits and original image files', async ({}, info) => {
   const page = await context.newPage();
   await page.setViewportSize({ width: 2200, height: 1000 });
@@ -414,9 +550,7 @@ test('handoff selects open Now notes and preserves exact instructions', async ({
   await page
     .getByRole('combobox', { name: 'Priority: Polish this later.' })
     .selectOption('later');
-  await expect(page.locator('.handoff-count')).toContainText(
-    '1 change selected',
-  );
+  await expect(page.locator('.handoff-count')).toContainText('1 note selected');
   await expect(
     page.getByRole('checkbox', { name: 'Include: Polish this later.' }),
   ).not.toBeChecked();
@@ -636,7 +770,7 @@ test('review sessions collect pages explicitly and survive navigation', async ({
   await save(page, 'Clarify the action.', 1);
   await page.getByRole('button', { name: 'Prepare handoff' }).click();
   await expect(page.locator('.handoff-count')).toHaveText(
-    '2 changes selected · 2 pages',
+    '2 notes selected · 2 pages',
   );
   await expect(
     page.getByRole('textbox', { name: 'Instructions for this handoff' }),
@@ -687,7 +821,7 @@ test('check changes preserves original evidence and exports reviewer follow-up',
   await expect(page.locator('.card .status')).toHaveText('Accepted');
   await page.getByRole('button', { name: 'Prepare handoff' }).click();
   await expect(page.locator('.handoff-count')).toContainText(
-    '0 changes selected',
+    '0 notes selected',
   );
 });
 test('three report comments persist across reload and browser restart, export, and reject changed targets', async ({}, info) => {
@@ -715,7 +849,9 @@ test('three report comments persist across reload and browser restart, export, a
   );
   await page.reload();
   await expect(page.locator('.card')).toHaveCount(3);
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.target-name')).toContainText('evidence-claim');
   await page.screenshot({ path: info.outputPath('review.png') });
   await context.close();
@@ -922,7 +1058,7 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
     .locator('.card')
     .getByRole('button', { name: 'Mark addressed' })
     .click();
-  await expect(page.locator('.card .status')).toHaveText('addressed');
+  await expect(page.locator('.card .status')).toHaveText('Addressed');
   await page.locator('#evidence-claim').evaluate((el) => {
     el.removeAttribute('id');
     el.after(el.cloneNode(true));
@@ -940,6 +1076,44 @@ test('ambiguous targets remain explicit and screenshot opt-out is exported', asy
   expect(data.annotations[0].resolution).toBe('addressed');
   expect(data.annotations[0].screenshot.status).toBe('unavailable');
   expect(data.annotations[0].originalComment).toBe('Keep this exact note.');
+});
+
+test('keyboard selection attaches focused controls without activating the page', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/frontend.html');
+  await activate(page);
+  const target = page.locator('#complete-task');
+  await target.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#project-status')).toHaveText('No actions yet');
+  await expect(page.locator('.target .excerpt')).toContainText(
+    'Complete a task',
+  );
+  await expect(
+    page.getByRole('textbox', { name: 'Your feedback' }),
+  ).toBeFocused();
+  await save(page, 'Make the action easier to find.', 1);
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await target.focus();
+  await page.keyboard.press('Space');
+  await page.locator('#route-change').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-compare-slot="0"]')).toContainText(
+    'Complete a task',
+  );
+  await expect(page.locator('[data-compare-slot="1"]')).toContainText(
+    'Open activity view',
+  );
+  await save(page, 'Match the action button styling.', 2);
+  await expect(page.locator('#project-status')).toHaveText('No actions yet');
+  await expect(page).toHaveURL('http://127.0.0.1:4173/frontend.html');
+  await page
+    .getByRole('button', { name: 'Pause selection', exact: true })
+    .click();
+  await expect(page.locator('.hint')).toContainText('Selection paused');
+  await target.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#project-status')).toHaveText('1 task completed');
 });
 
 test('panel can move, resize, minimize and restore with layout and settings persisted', async ({}, info) => {
@@ -1019,6 +1193,17 @@ test('panel can move, resize, minimize and restore with layout and settings pers
     original.height - 8,
     0,
   );
+  const beforeLeftResize = (await panel.boundingBox())!;
+  await page
+    .getByRole('button', { name: 'Resize panel from left', exact: true })
+    .focus();
+  await page.keyboard.press('ArrowLeft');
+  const afterLeftResize = (await panel.boundingBox())!;
+  expect(afterLeftResize.x).toBe(beforeLeftResize.x - 8);
+  expect(afterLeftResize.width).toBe(beforeLeftResize.width + 8);
+  expect(afterLeftResize.x + afterLeftResize.width).toBe(
+    beforeLeftResize.x + beforeLeftResize.width,
+  );
   await page.setViewportSize({ width: 360, height: 600 });
   await expect
     .poll(async () => {
@@ -1073,6 +1258,7 @@ test('notes can be searched and filtered without changing the export, and keyboa
     .selectOption('open');
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.comment')).toHaveText('Label the chart axes.');
+  await expect(page.locator('.count')).toHaveText('1 of 2');
   await page
     .getByRole('combobox', { name: 'Filter notes' })
     .selectOption('all');
@@ -1092,6 +1278,7 @@ test('notes can be searched and filtered without changing the export, and keyboa
   await expect(
     page.getByText('No matching notes', { exact: true }),
   ).toBeVisible();
+  await expect(page.locator('.count')).toHaveText('0 of 2');
   await page
     .getByRole('button', { name: 'Clear filters', exact: true })
     .click();
@@ -1106,6 +1293,16 @@ test('notes can be searched and filtered without changing the export, and keyboa
   ).toBeHidden();
   await first.locator('summary').click();
   await expect(first.locator('.image-state')).toHaveText('Screenshot attached');
+  const priority = first.getByRole('combobox', { name: 'Priority for note 1' });
+  await priority.focus();
+  await priority.selectOption('later');
+  await expect(priority).toBeFocused();
+  await expect(priority).toHaveValue('later');
+  await expect(first.locator('details')).toHaveAttribute('open', '');
+  const cardWidth = (await first.boundingBox())!.width;
+  expect((await first.locator('details').boundingBox())!.width).toBeGreaterThan(
+    cardWidth - 5,
+  );
   await first.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.locator('.card')).toHaveCount(2);
   await first
@@ -1664,7 +1861,9 @@ test('switching targets autosaves exact drafts and keeps selection refinements t
   await expect(page.locator('.target-name')).toContainText('retention-chart');
   await expect(draft).toHaveValue('');
   await draft.fill('Label the comparison.');
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.card')).toHaveCount(2);
   await expect(page.locator('.target-name')).toContainText('evidence-claim');
   await expect(draft).toHaveValue('');
@@ -1721,7 +1920,9 @@ test('switching during recording waits for final words and saves to the original
   await draft.fill('A separate typed note.');
   await page.getByRole('button', { name: 'Save note' }).click();
   await expect(page.locator('.card')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.target-name')).toContainText('evidence-claim');
   await page
     .locator('.panel')
@@ -1796,7 +1997,7 @@ test('export offers clipboard, standalone Markdown and ZIP, including the unsave
   await exportButton.click();
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.handoff-count')).toHaveText(
-    '1 change selected · 1 page',
+    '1 note selected · 1 page',
   );
   await expect(
     page.getByRole('heading', { name: 'Prepare handoff' }),
@@ -1947,7 +2148,7 @@ test('clear all notes confirms page scope, preserves drafts, and recovers from f
   await expect(page.getByRole('status')).toContainText(
     'Simulated delete failure',
   );
-  await expect(page.locator('.count')).toHaveText('2');
+  await expect(page.locator('.count')).toHaveText('1 of 2');
   await expect(draft).toHaveValue('Keep my unsaved draft.');
   await inContentWorld(
     page,
@@ -1983,7 +2184,9 @@ test('Parent refines a written draft without submitting the compact composer', a
   await expect(page.locator('.card')).toHaveCount(0);
   await select(page, '#retention-chart');
   await expect(page.locator('.card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Open note 1', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Locate note 1', exact: true })
+    .click();
   await expect(page.locator('.target-name')).toContainText(
     'recommendation-cards',
   );
