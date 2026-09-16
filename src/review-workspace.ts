@@ -99,21 +99,30 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
   ) {
     const control = element('button', label, className);
     control.type = 'button';
+    control.dataset.reviewFocus = label;
     control.onclick = () => run(action);
     parent.append(control);
     return control;
   }
   function run(action: () => void | Promise<void>) {
     if (locked) return;
+    const focused = root.activeElement as HTMLElement | null;
+    const focusKey =
+      focused?.dataset.reviewFocus || focused?.getAttribute('aria-label');
+    const scrollTop = body.scrollTop;
+    const disabled = new Map<HTMLElement, boolean>();
     locked = true;
+    section.setAttribute('aria-busy', 'true');
     options.onSummary();
     for (const control of section.querySelectorAll<
       | HTMLButtonElement
       | HTMLInputElement
       | HTMLTextAreaElement
       | HTMLSelectElement
-    >('button,input,textarea,select'))
+    >('button,input,textarea,select')) {
+      disabled.set(control, control.disabled);
       control.disabled = true;
+    }
     // Call directly from the click so clipboard writes keep the browser's user gesture.
     let result: void | Promise<void>;
     try {
@@ -127,6 +136,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       )
       .finally(() => {
         locked = false;
+        section.removeAttribute('aria-busy');
         options.onSummary();
         for (const control of section.querySelectorAll<
           | HTMLButtonElement
@@ -134,11 +144,27 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
           | HTMLTextAreaElement
           | HTMLSelectElement
         >('button,input,textarea,select'))
-          control.disabled = false;
+          if (disabled.has(control)) control.disabled = disabled.get(control)!;
         if (view === 'handoff') updateHandoffCount();
         if (closeAfterAction) {
           closeAfterAction = false;
           close();
+        } else if (!root.activeElement || root.activeElement === focused) {
+          const replacement = [
+            ...section.querySelectorAll<HTMLElement>(
+              'button,input,textarea,select',
+            ),
+          ].find(
+            (control) =>
+              focusKey &&
+              (control.dataset.reviewFocus ||
+                control.getAttribute('aria-label')) === focusKey &&
+              !control.matches(':disabled'),
+          );
+          if (replacement) {
+            body.scrollTop = scrollTop;
+            replacement.focus({ preventScroll: true });
+          } else title.focus();
         }
       });
   }
@@ -307,6 +333,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       editing && session ? session.name : '',
     );
     name.placeholder = 'Before launch';
+    name.required = true;
     const instructions = textField(
       'Instructions for this session',
       editing && session ? session.instructions : '',
@@ -315,7 +342,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
     );
     instructions.placeholder =
       'For example: Preserve the colors and desktop layout.';
-    button(
+    const saveSession = button(
       editing && session ? 'Save session' : 'Start session',
       async () => {
         const now = new Date().toISOString();
@@ -335,6 +362,23 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       actions,
       'primary',
     );
+    const validateName = () => {
+      saveSession.disabled = !name.value.trim();
+      saveSession.title = saveSession.disabled
+        ? 'Enter a session name first'
+        : '';
+    };
+    name.oninput = validateName;
+    validateName();
+    if (editing && session) {
+      button('Cancel edit', () => {
+        renderSessions();
+        body
+          .querySelector<HTMLElement>('[data-review-focus="Edit session"]')
+          ?.focus();
+      });
+      name.focus();
+    }
     const backups = element('section', undefined, 'backup-tools');
     backups.append(element('h2', 'Backup & restore'));
     backups.append(
@@ -428,6 +472,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
   }
   function renderHandoff() {
     reset('Prepare handoff');
+    body.append(element('p', handoff.name, 'review-scope'));
     body.append(element('p', undefined, 'handoff-count review-summary'));
     body.append(
       element(
@@ -581,6 +626,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
 
   function renderCheck() {
     reset('Check changes');
+    title.focus();
     const note = checkNotes[checkIndex];
     if (!note) {
       body.append(

@@ -183,6 +183,81 @@ test.afterEach(async ({}, info) => {
   }
 });
 
+test('review actions retain keyboard focus and require a session name', async () => {
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/report.html');
+  await activate(page);
+  await page.getByRole('button', { name: 'Review sessions' }).click();
+  const start = page.getByRole('button', {
+    name: 'Start session',
+    exact: true,
+  });
+  await expect(start).toBeDisabled();
+  await page
+    .getByRole('textbox', { name: 'New session name', exact: true })
+    .fill('   ');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download backup' }).click();
+  await download;
+  await expect(start).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Download backup' }),
+  ).toBeFocused();
+  await page
+    .getByRole('textbox', { name: 'New session name', exact: true })
+    .fill('Launch review');
+  await start.click();
+  await expect(
+    page.getByRole('combobox', { name: 'Active review session' }),
+  ).not.toHaveValue('');
+  await expect(start).toBeDisabled();
+  await page.getByRole('button', { name: 'Edit session', exact: true }).click();
+  await expect(
+    page.getByRole('textbox', { name: 'Session name', exact: true }),
+  ).toBeFocused();
+  await page
+    .getByRole('textbox', { name: 'Session name', exact: true })
+    .fill('Discard this edit');
+  await page.getByRole('button', { name: 'Cancel edit' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Edit session', exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole('combobox', { name: 'Active review session' }),
+  ).toContainText('Launch review');
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page.getByRole('button', { name: 'Page note', exact: true }).click();
+  await save(page, 'A keyboard review note.', 1);
+  await page
+    .getByRole('button', { name: 'Prepare handoff', exact: true })
+    .click();
+  await expect(page.locator('.review-scope')).toHaveText('Launch review');
+  const clear = page.getByRole('button', {
+    name: 'Clear selection',
+    exact: true,
+  });
+  await clear.click();
+  await expect(clear).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: 'Copy Markdown to clipboard' }),
+  ).toBeDisabled();
+  const all = page.getByRole('button', { name: 'Select all', exact: true });
+  await all.press('Enter');
+  await expect(all).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: 'Copy Markdown to clipboard' }),
+  ).toBeEnabled();
+  await page.getByRole('button', { name: 'Back to page notes' }).click();
+  await page
+    .getByRole('button', { name: 'Check changes', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Check changes', exact: true }),
+  ).toBeFocused();
+  await expect(page.locator('.review-summary')).toContainText('every note');
+});
+
 test('screenshot studio preserves masked close-ups, edits and original image files', async ({}, info) => {
   const page = await context.newPage();
   await page.setViewportSize({ width: 2200, height: 1000 });
