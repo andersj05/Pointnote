@@ -466,7 +466,7 @@ export function mountReviewWorkspace(root: ShadowRoot, options: Options) {
       );
     const count = section.querySelector('.handoff-count');
     if (count)
-      count.textContent = `${plural(selected.length, 'change')} selected · ${plural(new Set(selected.map((note) => note.page.key)).size, 'page')}`;
+      count.textContent = `${plural(selected.length, 'note')} selected · ${plural(new Set(selected.map((note) => note.page.key)).size, 'page')}`;
     for (const control of actions.querySelectorAll<HTMLButtonElement>('button'))
       control.disabled = locked || !selected.length;
   }

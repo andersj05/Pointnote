@@ -325,11 +325,13 @@ async function mount() {
       ? 'Choose Attach here to confirm the new target.'
       : transitioning && voice.recording
         ? 'Finishing your voice note…'
-        : !hasSelection()
-          ? 'Select a target, or choose Page note above.'
-          : selectionMode === 'compare' && selected.length !== 2
-            ? 'Choose both targets before saving.'
-            : 'Save now, or select your next target to save.';
+        : voice.recording
+          ? 'Finish recording to edit or save your note.'
+          : !hasSelection()
+            ? 'Select a target, or choose Page note above.'
+            : selectionMode === 'compare' && selected.length !== 2
+              ? 'Choose both targets before saving.'
+              : 'Save now, or select your next target to save.';
     feedback.disabled = locked || voice.recording || Boolean(reattaching);
     for (const action of ['cancel', 'pause', 'settings', 'minimize', 'close'])
       $<HTMLButtonElement>(`[data-action=${action}]`).disabled = locked;
@@ -773,8 +775,9 @@ async function mount() {
         ...(replacement?.querySelectorAll<HTMLElement>('[data-note-action]') ||
           []),
       ].find((el) => el.dataset.noteAction === focusKey);
-      (control || $('.note-search')).focus({ preventScroll: true });
-      if (!annotations.length) feedback.focus({ preventScroll: true });
+      focusSelection(
+        annotations.length ? control || $('.note-search') : feedback,
+      );
     }
   }
   async function reconcile() {

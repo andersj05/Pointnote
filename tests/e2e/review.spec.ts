@@ -550,9 +550,7 @@ test('handoff selects open Now notes and preserves exact instructions', async ({
   await page
     .getByRole('combobox', { name: 'Priority: Polish this later.' })
     .selectOption('later');
-  await expect(page.locator('.handoff-count')).toContainText(
-    '1 change selected',
-  );
+  await expect(page.locator('.handoff-count')).toContainText('1 note selected');
   await expect(
     page.getByRole('checkbox', { name: 'Include: Polish this later.' }),
   ).not.toBeChecked();
@@ -772,7 +770,7 @@ test('review sessions collect pages explicitly and survive navigation', async ({
   await save(page, 'Clarify the action.', 1);
   await page.getByRole('button', { name: 'Prepare handoff' }).click();
   await expect(page.locator('.handoff-count')).toHaveText(
-    '2 changes selected · 2 pages',
+    '2 notes selected · 2 pages',
   );
   await expect(
     page.getByRole('textbox', { name: 'Instructions for this handoff' }),
@@ -823,7 +821,7 @@ test('check changes preserves original evidence and exports reviewer follow-up',
   await expect(page.locator('.card .status')).toHaveText('Accepted');
   await page.getByRole('button', { name: 'Prepare handoff' }).click();
   await expect(page.locator('.handoff-count')).toContainText(
-    '0 changes selected',
+    '0 notes selected',
   );
 });
 test('three report comments persist across reload and browser restart, export, and reject changed targets', async ({}, info) => {
@@ -1999,7 +1997,7 @@ test('export offers clipboard, standalone Markdown and ZIP, including the unsave
   await exportButton.click();
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.handoff-count')).toHaveText(
-    '1 change selected · 1 page',
+    '1 note selected · 1 page',
   );
   await expect(
     page.getByRole('heading', { name: 'Prepare handoff' }),
