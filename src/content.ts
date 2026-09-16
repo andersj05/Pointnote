@@ -115,6 +115,7 @@ async function mount() {
     reviewing = true,
     busy = false;
   let transitioning = false;
+  let selectionFocus: HTMLElement | undefined;
   let reviews: ReturnType<typeof mountReviewWorkspace> | undefined = undefined;
   let reviewOpen = false;
   let screenshotOpen = false;
@@ -1003,7 +1004,13 @@ async function mount() {
     } finally {
       transitioning = false;
       updateControls();
+      selectionFocus?.focus();
+      selectionFocus = undefined;
     }
+  }
+  function focusSelection(control: HTMLElement) {
+    if (transitioning) selectionFocus = control;
+    else control.focus();
   }
   function underPointer(x: number, y: number): Element | null {
     return (
@@ -1072,7 +1079,7 @@ async function mount() {
         quote = undefined;
         selectedId = reattaching;
         renderSelection();
-        feedback.focus();
+        focusSelection(feedback);
       }),
     );
   });
@@ -1117,7 +1124,7 @@ async function mount() {
         selectedId = reattaching;
         hovered = null;
         renderSelection();
-        if (selected.length === 2) feedback.focus();
+        if (selected.length === 2) focusSelection(feedback);
       };
       if (selected.length === 2 && comparisonSlot === null && !reattaching) {
         act(() =>
@@ -1153,8 +1160,8 @@ async function mount() {
       renderSelection();
       if (preferences.voiceShortcut?.kind === 'key') {
         panel.tabIndex = -1;
-        panel.focus({ preventScroll: true });
-      } else feedback.focus();
+        focusSelection(panel);
+      } else focusSelection(feedback);
     };
     if (
       multiple ||
@@ -1227,8 +1234,8 @@ async function mount() {
                   setNotice('Text selected. Add your feedback.', true);
                   if (preferences.voiceShortcut?.kind === 'key') {
                     panel.tabIndex = -1;
-                    panel.focus({ preventScroll: true });
-                  } else feedback.focus();
+                    focusSelection(panel);
+                  } else focusSelection(feedback);
                 }),
               );
             }, 0);
@@ -1352,7 +1359,7 @@ async function mount() {
           hovered = null;
           setReviewing(true);
           renderSelection();
-          if (selectionMode === 'page') feedback.focus();
+          if (selectionMode === 'page') focusSelection(feedback);
         }),
       );
     };
